@@ -25,24 +25,67 @@ resize();
 async function fetchEarthquakes() {
     try {
         statusDiv.textContent = "Fetching live data...";
-        const response = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson');
-        const data = await response.json();
         
-        earthquakes = data.features.map(f => ({
-            mag: f.properties.mag,
-            place: f.properties.place,
-            lon: f.geometry.coordinates[0],
-            lat: f.geometry.coordinates[1],
-            time: f.properties.time
-        })).filter(e => e.mag > 0);
+        const [usgsRes, emscRes] = await Promise.all([
+            fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_day.geojson'),
+            fetch('https://www.seismicportal.eu/fdsnws/event/1/query?format=json&minmag=3.0&limit=500')
+        ]);
         
-        earthquakes.sort((a, b) => b.time - a.time);
+        const usgsData = await usgsRes.json();
+        const emscData = await emscRes.json();
+        
+        let rawEarthquakes = [];
+        
+        if (usgsData.features) {
+            usgsData.features.forEach(f => {
+                if (f.properties.mag >= 3.0) {
+                    rawEarthquakes.push({
+                        mag: f.properties.mag,
+                        place: f.properties.place,
+                        lon: f.geometry.coordinates[0],
+                        lat: f.geometry.coordinates[1],
+                        time: f.properties.time
+                    });
+                }
+            });
+        }
+        
+        if (emscData.features) {
+            emscData.features.forEach(f => {
+                if (f.properties.mag >= 3.0) {
+                    rawEarthquakes.push({
+                        mag: f.properties.mag,
+                        place: f.properties.flynn_region,
+                        lon: f.geometry.coordinates[0],
+                        lat: f.geometry.coordinates[1],
+                        time: new Date(f.properties.time).getTime()
+                    });
+                }
+            });
+        }
+        
+        rawEarthquakes.sort((a, b) => b.time - a.time);
+        
+        earthquakes = [];
+        for (let i = 0; i < rawEarthquakes.length; i++) {
+            let eq = rawEarthquakes[i];
+            let isDuplicate = false;
+            for (let j = 0; j < earthquakes.length; j++) {
+                let e = earthquakes[j];
+                if (Math.abs(eq.time - e.time) < 300000 && Math.hypot(eq.lat - e.lat, eq.lon - e.lon) < 2.0) {
+                    isDuplicate = true;
+                    if (eq.mag > e.mag) earthquakes[j] = eq;
+                    break;
+                }
+            }
+            if (!isDuplicate) earthquakes.push(eq);
+        }
         
         eqList.innerHTML = '';
-        for (let i = 0; i < Math.min(20, earthquakes.length); i++) {
+        for (let i = 0; i < Math.min(25, earthquakes.length); i++) {
             let eq = earthquakes[i];
             let li = document.createElement('li');
-            let color = eq.mag >= 5.0 ? '#ff3333' : (eq.mag >= 3.0 ? '#ff8800' : '#ffff00');
+            let color = eq.mag >= 5.0 ? '#ff3333' : (eq.mag >= 4.0 ? '#ff8800' : '#ffff00');
             li.style.color = color;
             li.textContent = `M${eq.mag.toFixed(1)} - ${eq.place}`;
             eqList.appendChild(li);
