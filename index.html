@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Earthquake Map</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="style.css">
+    <meta name="theme-color" content="#1a1a24">
+    <!-- PWA settings for iOS -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+</head>
+<body>
+    <div id="ui-layer">
+        <div id="header">
+            <h1>LIVE EARTHQUAKES</h1>
+            <div id="status">Fetching data...</div>
+        </div>
+        
+        <div id="controls">
+            <button id="btn-zoomin">+</button>
+            <button id="btn-zoomout">-</button>
+            <button id="btn-reset">Reset</button>
+        </div>
+        
+        <div id="list-container">
+            <h3>Recent (24H)</h3>
+            <ul id="eq-list"></ul>
+        </div>
+    </div>
+
+    <canvas id="mapCanvas"></canvas>
+
+    <script src="coastlines.js"></script>
+    <script src="app.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js');
+        }
+    </script>
+</body>
+</html>

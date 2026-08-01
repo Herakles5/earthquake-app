@@ -1,0 +1,17 @@
+{
+  "name": "Earthquake Map Live",
+  "short_name": "EqMap",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#1a1a24",
+  "theme_color": "#ff8800",
+  "orientation": "portrait",
+  "description": "Live 2D Earthquake Map on Mittelerde",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='192' height='192'><circle cx='96' cy='96' r='90' fill='%231a1a24'/><circle cx='96' cy='96' r='40' fill='%23ff8800'/></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    }
+  ]
+}
