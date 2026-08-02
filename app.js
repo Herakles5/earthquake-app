@@ -174,6 +174,32 @@ function draw() {
     let mapCy = height / 2 + offsetY;
     let scale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
     
+    // Draw Tectonic Plates
+    if (typeof tectonic_plates !== 'undefined') {
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(255, 105, 180, 0.4)"; // Deep Pink, slightly transparent
+        ctx.lineWidth = 1;
+        for (let i = 0; i < tectonic_plates.length; i++) {
+            let l = tectonic_plates[i];
+            let r1 = ((90.0 - l[1]) / 180.0) * 723.0;
+            let a1 = l[0] * Math.PI / 180.0;
+            let px1 = mapCx + (r1 * Math.sin(a1)) * scale;
+            let py1 = mapCy + (r1 * Math.cos(a1)) * scale;
+            
+            let r2 = ((90.0 - l[3]) / 180.0) * 723.0;
+            let a2 = l[2] * Math.PI / 180.0;
+            let px2 = mapCx + (r2 * Math.sin(a2)) * scale;
+            let py2 = mapCy + (r2 * Math.cos(a2)) * scale;
+            
+            if ((px1 > 0 && px1 < width && py1 > 0 && py1 < height) || 
+                (px2 > 0 && px2 < width && py2 > 0 && py2 < height)) {
+                ctx.moveTo(px1, py1);
+                ctx.lineTo(px2, py2);
+            }
+        }
+        ctx.stroke();
+    }
+    
     // Draw Earthquakes First (so they are in the background)
     pulseTime += 0.1;
     let pulse = (Math.sin(pulseTime) + 1.0) * 0.5;

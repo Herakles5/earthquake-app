@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eq-store-v6';
+const CACHE_NAME = 'eq-store-v7';
 
 self.addEventListener('install', (e) => {
     e.waitUntil(
@@ -7,7 +7,8 @@ self.addEventListener('install', (e) => {
             './index.html',
             './app.js',
             './style.css',
-            './coastlines.js'
+            './coastlines.js',
+            './plates.js'
         ]))
     );
 });
