@@ -1,4 +1,4 @@
-Nationale Netzwerke (GeoNet, JMA) 
+***EARTHQUAKE-MONITOR***
 
 live stream web site - ***https://herakles5.github.io/earthquake-app/*** -
 
@@ -11,7 +11,6 @@ zoom in + or out - and swipe the map arround
 ***if map not showed directly , just ,,STRG+F5,,***
 
 ***server files :
-https://github.com/Herakles5/earthquake-app
 USGS (United States Geological Survey),
 EMSC (European-Mediterranean Seismological Centre)
 GEOFON (Deutsches GeoForschungsZentrum GFZ in Potsdam) 
