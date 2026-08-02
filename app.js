@@ -174,28 +174,7 @@ function draw() {
     let mapCy = height / 2 + offsetY;
     let scale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
     
-    // Draw Coastlines
-    ctx.beginPath();
-    ctx.strokeStyle = "rgba(100, 150, 100, 0.5)";
-    ctx.lineWidth = 1;
-    
-    // coast_lines is loaded from coastlines.js
-    for (let i = 0; i < coast_lines.length; i++) {
-        let l = coast_lines[i];
-        let px1 = mapCx + l[0] * scale;
-        let py1 = mapCy + l[1] * scale;
-        let px2 = mapCx + l[2] * scale;
-        let py2 = mapCy + l[3] * scale;
-        
-        if ((px1 > 0 && px1 < width && py1 > 0 && py1 < height) || 
-            (px2 > 0 && px2 < width && py2 > 0 && py2 < height)) {
-            ctx.moveTo(px1, py1);
-            ctx.lineTo(px2, py2);
-        }
-    }
-    ctx.stroke();
-    
-    // Draw Earthquakes
+    // Draw Earthquakes First (so they are in the background)
     pulseTime += 0.1;
     let pulse = (Math.sin(pulseTime) + 1.0) * 0.5;
     
@@ -257,6 +236,26 @@ function draw() {
             }
         }
     }
+    
+    // Draw Coastlines ON TOP of earthquakes so islands are always visible
+    ctx.beginPath();
+    ctx.strokeStyle = "rgba(120, 220, 120, 0.8)"; // Brighter green and less transparent
+    ctx.lineWidth = 1.5; // Slightly thicker
+    
+    for (let i = 0; i < coast_lines.length; i++) {
+        let l = coast_lines[i];
+        let px1 = mapCx + l[0] * scale;
+        let py1 = mapCy + l[1] * scale;
+        let px2 = mapCx + l[2] * scale;
+        let py2 = mapCy + l[3] * scale;
+        
+        if ((px1 > 0 && px1 < width && py1 > 0 && py1 < height) || 
+            (px2 > 0 && px2 < width && py2 > 0 && py2 < height)) {
+            ctx.moveTo(px1, py1);
+            ctx.lineTo(px2, py2);
+        }
+    }
+    ctx.stroke();
     
     requestAnimationFrame(draw);
 }
