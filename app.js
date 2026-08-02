@@ -130,13 +130,13 @@ async function fetchEarthquakes() {
                 playBeep();
                 
                 // Auto zoom & pan
-                let r = ((90.0 - newestEq.lat) / 180.0) * 750.0;
+                let r = ((90.0 - newestEq.lat) / 180.0) * 723.0;
                 let angle = newestEq.lon * Math.PI / 180.0;
                 let map_x = r * Math.sin(angle);
                 let map_y = r * Math.cos(angle);
                 
                 zoom = 2.5; // Zoom in
-                let targetScale = (Math.min(width, height) * 0.45 / 750.0) * zoom;
+                let targetScale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
                 offsetX = -map_x * targetScale;
                 offsetY = -map_y * targetScale;
             }
@@ -158,7 +158,7 @@ function draw() {
     
     let mapCx = width / 2 + offsetX;
     let mapCy = height / 2 + offsetY;
-    let scale = (Math.min(width, height) * 0.45 / 750.0) * zoom;
+    let scale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
     
     // Draw Coastlines
     ctx.beginPath();
@@ -188,7 +188,7 @@ function draw() {
     for (let i = 0; i < earthquakes.length; i++) {
         let eq = earthquakes[i];
         
-        let r = ((90.0 - eq.lat) / 180.0) * 750.0;
+        let r = ((90.0 - eq.lat) / 180.0) * 723.0;
         let angle = eq.lon * Math.PI / 180.0;
         
         let map_x = r * Math.sin(angle);
