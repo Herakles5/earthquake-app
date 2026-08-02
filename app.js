@@ -14,6 +14,8 @@ let earthquakes = [];
 let pulseTime = 0;
 let lastLatestTime = 0;
 let audioAllowed = false;
+let autoResetTimeout = null;
+let lineExpiryTime = 0;
 
 window.addEventListener('click', () => audioAllowed = true, {once: true});
 window.addEventListener('touchstart', () => audioAllowed = true, {once: true});
@@ -129,16 +131,28 @@ async function fetchEarthquakes() {
                 // New earthquake!
                 playBeep();
                 
+                // Set expiry for the dashed line (120 seconds from now)
+                lineExpiryTime = Date.now() + 120000;
+                
                 // Auto zoom & pan
                 let r = ((90.0 - newestEq.lat) / 180.0) * 723.0;
                 let angle = newestEq.lon * Math.PI / 180.0;
                 let map_x = r * Math.sin(angle);
                 let map_y = r * Math.cos(angle);
                 
-                zoom = 2.5; // Zoom in
+                zoom = 3.5; // Zoom in closer
                 let targetScale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
                 offsetX = -map_x * targetScale;
                 offsetY = -map_y * targetScale;
+                
+                // Auto reset camera after 20 seconds
+                if (autoResetTimeout) clearTimeout(autoResetTimeout);
+                autoResetTimeout = setTimeout(() => {
+                    zoom = 1.0;
+                    offsetX = 0;
+                    offsetY = 0;
+                    autoResetTimeout = null;
+                }, 20000);
             }
             lastLatestTime = newestEq.time;
         }
@@ -184,6 +198,31 @@ function draw() {
     // Draw Earthquakes
     pulseTime += 0.1;
     let pulse = (Math.sin(pulseTime) + 1.0) * 0.5;
+    
+    // Draw Dashed line between last two earthquakes if active
+    if (Date.now() < lineExpiryTime && earthquakes.length >= 2) {
+        let eq1 = earthquakes[0];
+        let eq2 = earthquakes[1];
+        
+        let r1 = ((90.0 - eq1.lat) / 180.0) * 723.0;
+        let angle1 = eq1.lon * Math.PI / 180.0;
+        let px1 = mapCx + (r1 * Math.sin(angle1)) * scale;
+        let py1 = mapCy + (r1 * Math.cos(angle1)) * scale;
+        
+        let r2 = ((90.0 - eq2.lat) / 180.0) * 723.0;
+        let angle2 = eq2.lon * Math.PI / 180.0;
+        let px2 = mapCx + (r2 * Math.sin(angle2)) * scale;
+        let py2 = mapCy + (r2 * Math.cos(angle2)) * scale;
+        
+        ctx.beginPath();
+        ctx.setLineDash([10, 10]);
+        ctx.moveTo(px1, py1);
+        ctx.lineTo(px2, py2);
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.setLineDash([]); // Reset line dash for other drawings
+    }
     
     for (let i = 0; i < earthquakes.length; i++) {
         let eq = earthquakes[i];
