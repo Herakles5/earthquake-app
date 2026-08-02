@@ -12,6 +12,34 @@ let startX, startY;
 
 let earthquakes = [];
 let pulseTime = 0;
+let lastLatestTime = 0;
+let audioAllowed = false;
+
+window.addEventListener('click', () => audioAllowed = true, {once: true});
+window.addEventListener('touchstart', () => audioAllowed = true, {once: true});
+
+function playBeep() {
+    if (!audioAllowed) return;
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(800, ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.3);
+        
+        gainNode.gain.setValueAtTime(0.5, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+        
+        osc.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        
+        osc.start();
+        osc.stop(ctx.currentTime + 0.3);
+    } catch(e) {}
+}
 
 function resize() {
     width = window.innerWidth;
@@ -87,8 +115,32 @@ async function fetchEarthquakes() {
             let li = document.createElement('li');
             let color = eq.mag >= 5.0 ? '#ff3333' : (eq.mag >= 4.0 ? '#ff8800' : '#ffff00');
             li.style.color = color;
-            li.textContent = `M${eq.mag.toFixed(1)} - ${eq.place}`;
+            
+            let d = new Date(eq.time);
+            let timeStr = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
+            
+            li.textContent = `[${timeStr}] M${eq.mag.toFixed(1)} - ${eq.place}`;
             eqList.appendChild(li);
+        }
+        
+        if (earthquakes.length > 0) {
+            let newestEq = earthquakes[0];
+            if (lastLatestTime > 0 && newestEq.time > lastLatestTime) {
+                // New earthquake!
+                playBeep();
+                
+                // Auto zoom & pan
+                let r = ((90.0 - newestEq.lat) / 180.0) * 750.0;
+                let angle = newestEq.lon * Math.PI / 180.0;
+                let map_x = r * Math.sin(angle);
+                let map_y = r * Math.cos(angle);
+                
+                zoom = 2.5; // Zoom in
+                let targetScale = (Math.min(width, height) * 0.45 / 750.0) * zoom;
+                offsetX = -map_x * targetScale;
+                offsetY = -map_y * targetScale;
+            }
+            lastLatestTime = newestEq.time;
         }
         
         statusDiv.textContent = `${earthquakes.length} earthquakes mapped.`;
