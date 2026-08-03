@@ -133,6 +133,7 @@ async function fetchEarthquakes() {
                     if (eq.mag > e.mag) earthquakes[j] = eq;
                     break;
                 }
+            }
             if (!isDuplicate) {
                 // Ensure strictly last 24 hours (86400000 ms)
                 if (Date.now() - eq.time < 86400000) {
