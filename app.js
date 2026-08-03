@@ -18,6 +18,8 @@ let autoResetTimeout = null;
 let lineExpiryTime = 0;
 let predictedNextTime = 0;
 let predictedNextTime24h = 0;
+let predictedNextTime7d = 0;
+let predictedNextTime30d = 0;
 
 function updatePrediction() {
     // Short-term prediction (last 5)
@@ -59,6 +61,48 @@ function updatePrediction() {
             let text = h > 0 ? `OVERDUE by ${h}h ${m}m ${s}s` : `OVERDUE by ${m}m ${s}s`;
             el24h.textContent = text;
             el24h.style.color = '#ff3333';
+        }
+    }
+    
+    // Global 7d prediction
+    const el7d = document.getElementById('stat-7d-avg');
+    if (el7d && predictedNextTime7d > 0) {
+        let diff = predictedNextTime7d - Date.now();
+        if (diff > 0) {
+            let diffSecs = Math.floor(diff / 1000);
+            let h = Math.floor(diffSecs / 3600);
+            let m = Math.floor((diffSecs % 3600) / 60);
+            let s = diffSecs % 60;
+            el7d.textContent = h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+            el7d.style.color = '#00ffcc';
+        } else {
+            let overdueSecs = Math.floor(Math.abs(diff) / 1000);
+            let h = Math.floor(overdueSecs / 3600);
+            let m = Math.floor((overdueSecs % 3600) / 60);
+            let s = overdueSecs % 60;
+            el7d.textContent = h > 0 ? `OVERDUE by ${h}h ${m}m ${s}s` : `OVERDUE by ${m}m ${s}s`;
+            el7d.style.color = '#ff3333';
+        }
+    }
+    
+    // Global 30d prediction
+    const el30d = document.getElementById('stat-30d-avg');
+    if (el30d && predictedNextTime30d > 0) {
+        let diff = predictedNextTime30d - Date.now();
+        if (diff > 0) {
+            let diffSecs = Math.floor(diff / 1000);
+            let h = Math.floor(diffSecs / 3600);
+            let m = Math.floor((diffSecs % 3600) / 60);
+            let s = diffSecs % 60;
+            el30d.textContent = h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+            el30d.style.color = '#00ffcc';
+        } else {
+            let overdueSecs = Math.floor(Math.abs(diff) / 1000);
+            let h = Math.floor(overdueSecs / 3600);
+            let m = Math.floor((overdueSecs % 3600) / 60);
+            let s = overdueSecs % 60;
+            el30d.textContent = h > 0 ? `OVERDUE by ${h}h ${m}m ${s}s` : `OVERDUE by ${m}m ${s}s`;
+            el30d.style.color = '#ff3333';
         }
     }
 }
@@ -313,16 +357,10 @@ async function fetchLongTermStats() {
         let weekEqs = monthEqs.filter(eq => (now - eq.time) < 7 * 86400000);
         
         let calculateStats = (eqArray) => {
-            if (eqArray.length < 2) return { count: 0, avg: 'N/A', region: 'N/A' };
+            if (eqArray.length < 2) return { count: 0, avgMs: 0, region: 'N/A' };
             let count = eqArray.length;
             let timeSpan = eqArray[0].time - eqArray[eqArray.length - 1].time;
             let avgMs = timeSpan / (count - 1);
-            
-            let avgSecs = Math.floor(avgMs / 1000);
-            let h = Math.floor(avgSecs / 3600);
-            let m = Math.floor((avgSecs % 3600) / 60);
-            let s = avgSecs % 60;
-            let avgStr = h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
             
             let regionCounts = {};
             let maxCount = 0;
@@ -339,11 +377,18 @@ async function fetchLongTermStats() {
                 }
             });
             
-            return { count, avg: avgStr, region: bestRegion };
+            return { count, avgMs, region: bestRegion };
         };
         
         let stats7d = calculateStats(weekEqs);
         let stats30d = calculateStats(monthEqs);
+        
+        if (weekEqs.length > 0 && stats7d.avgMs > 0) {
+            predictedNextTime7d = weekEqs[0].time + stats7d.avgMs;
+        }
+        if (monthEqs.length > 0 && stats30d.avgMs > 0) {
+            predictedNextTime30d = monthEqs[0].time + stats30d.avgMs;
+        }
         
         let updateText = (id, text) => {
             let el = document.getElementById(id);
@@ -351,12 +396,12 @@ async function fetchLongTermStats() {
         };
         
         updateText('stat-7d-count', stats7d.count);
-        updateText('stat-7d-avg', stats7d.avg);
         updateText('stat-7d-region', stats7d.region);
         
         updateText('stat-30d-count', stats30d.count);
-        updateText('stat-30d-avg', stats30d.avg);
         updateText('stat-30d-region', stats30d.region);
+        
+        updatePrediction();
         
     } catch(e) {
         console.error("Failed to load long term stats", e);
