@@ -169,6 +169,19 @@ h3 {
     gap: 8px;
 }
 
+.pred-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.pred-divider {
+    width: 100%;
+    height: 1px;
+    background: rgba(255,255,255,0.1);
+    margin: 4px 0;
+}
+
 .pred-row {
     display: flex;
     justify-content: space-between;
@@ -182,7 +195,7 @@ h3 {
     text-transform: uppercase;
 }
 
-#prediction-timer, #prediction-timer-24h, #prediction-region {
+#prediction-timer, #prediction-timer-24h, #prediction-region-5, #prediction-region-24h {
     font-weight: bold;
     font-size: 18px;
     text-align: right;
@@ -196,7 +209,7 @@ h3 {
     color: #00ffcc;
 }
 
-#prediction-region {
+#prediction-region-5, #prediction-region-24h {
     color: #ff33ff;
     font-size: 15px; /* slightly smaller for region text */
     max-width: 200px;

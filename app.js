@@ -250,32 +250,33 @@ async function fetchEarthquakes() {
         
         // Calculate predicted region
         if (earthquakes.length > 0) {
-            let regionCounts = {};
-            let maxCount = 0;
-            let bestRegion = earthquakes[0].place;
-            
-            let limit = Math.min(20, earthquakes.length);
-            for (let i = 0; i < limit; i++) {
-                let r = earthquakes[i].place;
-                let cleanR = r;
-                let ofIndex = r.indexOf(' of ');
-                if (ofIndex > -1) {
-                    cleanR = r.substring(ofIndex + 4);
+            let getBestRegion = (limit) => {
+                let regionCounts = {};
+                let maxCount = 0;
+                let bestRegion = earthquakes[0].place;
+                let actualLimit = Math.min(limit, earthquakes.length);
+                for (let i = 0; i < actualLimit; i++) {
+                    let r = earthquakes[i].place;
+                    let cleanR = r;
+                    let ofIndex = r.indexOf(' of ');
+                    if (ofIndex > -1) {
+                        cleanR = r.substring(ofIndex + 4);
+                    }
+                    cleanR = cleanR.trim().toUpperCase();
+                    regionCounts[cleanR] = (regionCounts[cleanR] || 0) + 1;
+                    if (regionCounts[cleanR] > maxCount) {
+                        maxCount = regionCounts[cleanR];
+                        bestRegion = cleanR;
+                    }
                 }
-                cleanR = cleanR.trim().toUpperCase();
-                
-                regionCounts[cleanR] = (regionCounts[cleanR] || 0) + 1;
-                
-                if (regionCounts[cleanR] > maxCount) {
-                    maxCount = regionCounts[cleanR];
-                    bestRegion = cleanR;
-                }
-            }
+                return bestRegion;
+            };
             
-            let regEl = document.getElementById('prediction-region');
-            if (regEl) {
-                regEl.textContent = bestRegion;
-            }
+            let reg5 = document.getElementById('prediction-region-5');
+            if (reg5) reg5.textContent = getBestRegion(5);
+            
+            let reg24 = document.getElementById('prediction-region-24h');
+            if (reg24) reg24.textContent = getBestRegion(earthquakes.length);
         }
         
         updatePrediction();
