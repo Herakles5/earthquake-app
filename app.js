@@ -357,7 +357,7 @@ async function fetchLongTermStats() {
         let weekEqs = monthEqs.filter(eq => (now - eq.time) < 7 * 86400000);
         
         let calculateStats = (eqArray) => {
-            if (eqArray.length < 2) return { count: 0, avgMs: 0, region: 'N/A' };
+            if (eqArray.length < 2) return { count: 0, avgMs: 0, region: 'N/A', mag5: 0, mag7: 0 };
             let count = eqArray.length;
             let timeSpan = eqArray[0].time - eqArray[eqArray.length - 1].time;
             let avgMs = timeSpan / (count - 1);
@@ -365,7 +365,13 @@ async function fetchLongTermStats() {
             let regionCounts = {};
             let maxCount = 0;
             let bestRegion = eqArray[0].place;
+            let mag5 = 0;
+            let mag7 = 0;
+            
             eqArray.forEach(eq => {
+                if (eq.mag >= 7.0) mag7++;
+                if (eq.mag >= 5.0) mag5++;
+                
                 let cleanR = eq.place;
                 let ofIndex = cleanR.indexOf(' of ');
                 if (ofIndex > -1) cleanR = cleanR.substring(ofIndex + 4);
@@ -377,7 +383,7 @@ async function fetchLongTermStats() {
                 }
             });
             
-            return { count, avgMs, region: bestRegion };
+            return { count, avgMs, region: bestRegion, mag5, mag7 };
         };
         
         let stats7d = calculateStats(weekEqs);
@@ -396,9 +402,13 @@ async function fetchLongTermStats() {
         };
         
         updateText('stat-7d-count', stats7d.count);
+        updateText('stat-7d-mag5', stats7d.mag5);
+        updateText('stat-7d-mag7', stats7d.mag7);
         updateText('stat-7d-region', stats7d.region);
         
         updateText('stat-30d-count', stats30d.count);
+        updateText('stat-30d-mag5', stats30d.mag5);
+        updateText('stat-30d-mag7', stats30d.mag7);
         updateText('stat-30d-region', stats30d.region);
         
         updatePrediction();
