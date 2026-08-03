@@ -182,9 +182,10 @@ h3 {
     text-transform: uppercase;
 }
 
-#prediction-timer, #prediction-timer-24h {
+#prediction-timer, #prediction-timer-24h, #prediction-region {
     font-weight: bold;
     font-size: 18px;
+    text-align: right;
 }
 
 #prediction-timer {
@@ -193,4 +194,13 @@ h3 {
 
 #prediction-timer-24h {
     color: #00ffcc;
+}
+
+#prediction-region {
+    color: #ff33ff;
+    font-size: 15px; /* slightly smaller for region text */
+    max-width: 200px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
