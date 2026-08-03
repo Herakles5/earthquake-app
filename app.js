@@ -31,13 +31,11 @@ function updatePrediction() {
             el.textContent = `${m}m ${s}s`;
             el.style.color = '#ff8800';
         } else {
-            el.textContent = "Any moment now...";
+            let overdueSecs = Math.floor(Math.abs(diff) / 1000);
+            let m = Math.floor(overdueSecs / 60);
+            let s = overdueSecs % 60;
+            el.textContent = `OVERDUE by ${m}m ${s}s`;
             el.style.color = '#ff3333';
-            
-            // if we missed it by a lot, just shift the prediction slightly forward so it stays dynamic
-            if (diff < -300000) {
-                predictedNextTime = Date.now() + 60000;
-            }
         }
     }
 }
@@ -189,10 +187,10 @@ async function fetchEarthquakes() {
         }
         
         
-        if (earthquakes.length >= 3) {
+        if (earthquakes.length >= 5) {
             let totalDiff = 0;
             let count = 0;
-            for (let i = 0; i < 2; i++) {
+            for (let i = 0; i < 4; i++) {
                 let diff = Math.abs(earthquakes[i].time - earthquakes[i+1].time);
                 if (diff < 36000000) { // ignore diffs larger than 10 hours
                     totalDiff += diff;
