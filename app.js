@@ -16,6 +16,32 @@ let lastLatestTime = 0;
 let audioAllowed = false;
 let autoResetTimeout = null;
 let lineExpiryTime = 0;
+let predictedNextTime = 0;
+
+function updatePrediction() {
+    const el = document.getElementById('prediction-timer');
+    if (!el) return;
+    
+    if (predictedNextTime > 0) {
+        let diff = predictedNextTime - Date.now();
+        if (diff > 0) {
+            let diffSecs = Math.floor(diff / 1000);
+            let m = Math.floor(diffSecs / 60);
+            let s = diffSecs % 60;
+            el.textContent = `${m}m ${s}s`;
+            el.style.color = '#ff8800';
+        } else {
+            el.textContent = "Any moment now...";
+            el.style.color = '#ff3333';
+            
+            // if we missed it by a lot, just shift the prediction slightly forward so it stays dynamic
+            if (diff < -300000) {
+                predictedNextTime = Date.now() + 60000;
+            }
+        }
+    }
+}
+setInterval(updatePrediction, 1000);
 
 window.addEventListener('click', () => audioAllowed = true, {once: true});
 window.addEventListener('touchstart', () => audioAllowed = true, {once: true});
@@ -157,6 +183,24 @@ async function fetchEarthquakes() {
             lastLatestTime = newestEq.time;
         }
         
+        
+        if (earthquakes.length >= 10) {
+            let totalDiff = 0;
+            let count = 0;
+            for (let i = 0; i < 9; i++) {
+                let diff = Math.abs(earthquakes[i].time - earthquakes[i+1].time);
+                if (diff < 36000000) { // ignore diffs larger than 10 hours
+                    totalDiff += diff;
+                    count++;
+                }
+            }
+            if (count > 0) {
+                let avgDiff = totalDiff / count;
+                predictedNextTime = earthquakes[0].time + avgDiff;
+                updatePrediction();
+            }
+        }
+        
         statusDiv.textContent = `${earthquakes.length} earthquakes mapped.`;
     } catch (e) {
         statusDiv.textContent = "Failed to load data.";
@@ -227,6 +271,23 @@ function draw() {
         ctx.lineWidth = 2;
         ctx.stroke();
         ctx.setLineDash([]); // Reset line dash for other drawings
+        
+        let diffMs = Math.abs(eq1.time - eq2.time);
+        let diffSecs = Math.floor(diffMs / 1000);
+        let diffMins = Math.floor(diffSecs / 60);
+        let diffHours = Math.floor(diffMins / 60);
+        let diffStr = '';
+        if (diffHours > 0) diffStr = `${diffHours}h ${diffMins % 60}m`;
+        else if (diffMins > 0) diffStr = `${diffMins}m ${diffSecs % 60}s`;
+        else diffStr = `${diffSecs}s`;
+        
+        let midX = (px1 + px2) / 2;
+        let midY = (py1 + py2) / 2;
+        
+        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.font = "bold 14px Arial";
+        ctx.textAlign = "center";
+        ctx.fillText(diffStr + " apart", midX, midY - 10);
     }
     
     for (let i = 0; i < earthquakes.length; i++) {
