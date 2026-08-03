@@ -20,6 +20,10 @@ let predictedNextTime = 0;
 let predictedNextTime24h = 0;
 let predictedNextTime7d = 0;
 let predictedNextTime30d = 0;
+let predictedNextTime7dMag5 = 0;
+let predictedNextTime7dMag7 = 0;
+let predictedNextTime30dMag5 = 0;
+let predictedNextTime30dMag7 = 0;
 
 function updatePrediction() {
     // Short-term prediction (last 5)
@@ -64,47 +68,51 @@ function updatePrediction() {
         }
     }
     
-    // Global 7d prediction
-    const el7d = document.getElementById('stat-7d-avg');
-    if (el7d && predictedNextTime7d > 0) {
-        let diff = predictedNextTime7d - Date.now();
-        if (diff > 0) {
-            let diffSecs = Math.floor(diff / 1000);
-            let h = Math.floor(diffSecs / 3600);
-            let m = Math.floor((diffSecs % 3600) / 60);
-            let s = diffSecs % 60;
-            el7d.textContent = h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
-            el7d.style.color = '#00ffcc';
-        } else {
-            let overdueSecs = Math.floor(Math.abs(diff) / 1000);
-            let h = Math.floor(overdueSecs / 3600);
-            let m = Math.floor((overdueSecs % 3600) / 60);
-            let s = overdueSecs % 60;
-            el7d.textContent = h > 0 ? `OVERDUE by ${h}h ${m}m ${s}s` : `OVERDUE by ${m}m ${s}s`;
-            el7d.style.color = '#ff3333';
+    let renderCountdown = (id, predictedTime, normalColor) => {
+        const el = document.getElementById(id);
+        if (el && predictedTime > 0) {
+            let diff = predictedTime - Date.now();
+            if (diff > 0) {
+                let diffSecs = Math.floor(diff / 1000);
+                let d = Math.floor(diffSecs / 86400);
+                let h = Math.floor((diffSecs % 86400) / 3600);
+                let m = Math.floor((diffSecs % 3600) / 60);
+                let s = diffSecs % 60;
+                let text = "";
+                if (d > 0) text = `${d}d ${h}h ${m}m ${s}s`;
+                else if (h > 0) text = `${h}h ${m}m ${s}s`;
+                else text = `${m}m ${s}s`;
+                
+                el.textContent = text;
+                el.style.color = normalColor;
+            } else {
+                let overdueSecs = Math.floor(Math.abs(diff) / 1000);
+                let d = Math.floor(overdueSecs / 86400);
+                let h = Math.floor((overdueSecs % 86400) / 3600);
+                let m = Math.floor((overdueSecs % 3600) / 60);
+                let s = overdueSecs % 60;
+                let text = "";
+                if (d > 0) text = `OVERDUE by ${d}d ${h}h ${m}m ${s}s`;
+                else if (h > 0) text = `OVERDUE by ${h}h ${m}m ${s}s`;
+                else text = `OVERDUE by ${m}m ${s}s`;
+                
+                el.textContent = text;
+                el.style.color = '#ff3333';
+            }
+        } else if (el) {
+            el.textContent = 'Calculating...';
         }
-    }
+    };
     
-    // Global 30d prediction
-    const el30d = document.getElementById('stat-30d-avg');
-    if (el30d && predictedNextTime30d > 0) {
-        let diff = predictedNextTime30d - Date.now();
-        if (diff > 0) {
-            let diffSecs = Math.floor(diff / 1000);
-            let h = Math.floor(diffSecs / 3600);
-            let m = Math.floor((diffSecs % 3600) / 60);
-            let s = diffSecs % 60;
-            el30d.textContent = h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
-            el30d.style.color = '#00ffcc';
-        } else {
-            let overdueSecs = Math.floor(Math.abs(diff) / 1000);
-            let h = Math.floor(overdueSecs / 3600);
-            let m = Math.floor((overdueSecs % 3600) / 60);
-            let s = overdueSecs % 60;
-            el30d.textContent = h > 0 ? `OVERDUE by ${h}h ${m}m ${s}s` : `OVERDUE by ${m}m ${s}s`;
-            el30d.style.color = '#ff3333';
-        }
-    }
+    // Global predictions
+    renderCountdown('stat-7d-avg', predictedNextTime7d, '#00ffcc');
+    renderCountdown('stat-30d-avg', predictedNextTime30d, '#00ffcc');
+    
+    renderCountdown('stat-7d-mag5-avg', predictedNextTime7dMag5, '#ff8800');
+    renderCountdown('stat-7d-mag7-avg', predictedNextTime7dMag7, '#ff3333');
+    
+    renderCountdown('stat-30d-mag5-avg', predictedNextTime30dMag5, '#ff8800');
+    renderCountdown('stat-30d-mag7-avg', predictedNextTime30dMag7, '#ff3333');
 }
 setInterval(updatePrediction, 1000);
 
@@ -357,7 +365,7 @@ async function fetchLongTermStats() {
         let weekEqs = monthEqs.filter(eq => (now - eq.time) < 7 * 86400000);
         
         let calculateStats = (eqArray) => {
-            if (eqArray.length < 2) return { count: 0, avgMs: 0, region: 'N/A', mag5: 0, mag7: 0 };
+            if (eqArray.length < 2) return { count: 0, avgMs: 0, region: 'N/A', mag5: 0, mag7: 0, mag5AvgMs: 0, mag7AvgMs: 0, mag5Last: 0, mag7Last: 0 };
             let count = eqArray.length;
             let timeSpan = eqArray[0].time - eqArray[eqArray.length - 1].time;
             let avgMs = timeSpan / (count - 1);
@@ -365,13 +373,21 @@ async function fetchLongTermStats() {
             let regionCounts = {};
             let maxCount = 0;
             let bestRegion = eqArray[0].place;
-            let mag5 = 0;
-            let mag7 = 0;
+            
+            let mag5Eqs = eqArray.filter(eq => eq.mag >= 5.0);
+            let mag7Eqs = eqArray.filter(eq => eq.mag >= 7.0);
+            
+            let mag5AvgMs = 0;
+            if (mag5Eqs.length >= 2) {
+                mag5AvgMs = (mag5Eqs[0].time - mag5Eqs[mag5Eqs.length - 1].time) / (mag5Eqs.length - 1);
+            }
+            
+            let mag7AvgMs = 0;
+            if (mag7Eqs.length >= 2) {
+                mag7AvgMs = (mag7Eqs[0].time - mag7Eqs[mag7Eqs.length - 1].time) / (mag7Eqs.length - 1);
+            }
             
             eqArray.forEach(eq => {
-                if (eq.mag >= 7.0) mag7++;
-                if (eq.mag >= 5.0) mag5++;
-                
                 let cleanR = eq.place;
                 let ofIndex = cleanR.indexOf(' of ');
                 if (ofIndex > -1) cleanR = cleanR.substring(ofIndex + 4);
@@ -383,18 +399,26 @@ async function fetchLongTermStats() {
                 }
             });
             
-            return { count, avgMs, region: bestRegion, mag5, mag7 };
+            return { 
+                count, avgMs, region: bestRegion, 
+                mag5: mag5Eqs.length, mag7: mag7Eqs.length,
+                mag5AvgMs, mag7AvgMs,
+                mag5Last: mag5Eqs.length > 0 ? mag5Eqs[0].time : 0,
+                mag7Last: mag7Eqs.length > 0 ? mag7Eqs[0].time : 0
+            };
         };
         
         let stats7d = calculateStats(weekEqs);
         let stats30d = calculateStats(monthEqs);
         
-        if (weekEqs.length > 0 && stats7d.avgMs > 0) {
-            predictedNextTime7d = weekEqs[0].time + stats7d.avgMs;
-        }
-        if (monthEqs.length > 0 && stats30d.avgMs > 0) {
-            predictedNextTime30d = monthEqs[0].time + stats30d.avgMs;
-        }
+        if (weekEqs.length > 0 && stats7d.avgMs > 0) predictedNextTime7d = weekEqs[0].time + stats7d.avgMs;
+        if (monthEqs.length > 0 && stats30d.avgMs > 0) predictedNextTime30d = monthEqs[0].time + stats30d.avgMs;
+        
+        if (stats7d.mag5AvgMs > 0) predictedNextTime7dMag5 = stats7d.mag5Last + stats7d.mag5AvgMs;
+        if (stats7d.mag7AvgMs > 0) predictedNextTime7dMag7 = stats7d.mag7Last + stats7d.mag7AvgMs;
+        
+        if (stats30d.mag5AvgMs > 0) predictedNextTime30dMag5 = stats30d.mag5Last + stats30d.mag5AvgMs;
+        if (stats30d.mag7AvgMs > 0) predictedNextTime30dMag7 = stats30d.mag7Last + stats30d.mag7AvgMs;
         
         let updateText = (id, text) => {
             let el = document.getElementById(id);
