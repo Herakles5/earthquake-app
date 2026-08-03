@@ -133,8 +133,12 @@ async function fetchEarthquakes() {
                     if (eq.mag > e.mag) earthquakes[j] = eq;
                     break;
                 }
+            if (!isDuplicate) {
+                // Ensure strictly last 24 hours (86400000 ms)
+                if (Date.now() - eq.time < 86400000) {
+                    earthquakes.push(eq);
+                }
             }
-            if (!isDuplicate) earthquakes.push(eq);
         }
         
         eqList.innerHTML = '';
@@ -184,10 +188,10 @@ async function fetchEarthquakes() {
         }
         
         
-        if (earthquakes.length >= 10) {
+        if (earthquakes.length >= 3) {
             let totalDiff = 0;
             let count = 0;
-            for (let i = 0; i < 9; i++) {
+            for (let i = 0; i < 2; i++) {
                 let diff = Math.abs(earthquakes[i].time - earthquakes[i+1].time);
                 if (diff < 36000000) { // ignore diffs larger than 10 hours
                     totalDiff += diff;
