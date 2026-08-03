@@ -164,11 +164,33 @@ h3 {
     z-index: 20;
     text-align: center;
     letter-spacing: 1px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.pred-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 15px;
+}
+
+.pred-label {
+    color: #aaaaaa;
+    font-size: 14px;
+    text-transform: uppercase;
+}
+
+#prediction-timer, #prediction-timer-24h {
+    font-weight: bold;
+    font-size: 18px;
 }
 
 #prediction-timer {
     color: #ff8800;
-    font-weight: bold;
-    font-size: 18px;
-    margin-left: 5px;
+}
+
+#prediction-timer-24h {
+    color: #00ffcc;
 }

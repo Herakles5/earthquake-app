@@ -17,12 +17,12 @@ let audioAllowed = false;
 let autoResetTimeout = null;
 let lineExpiryTime = 0;
 let predictedNextTime = 0;
+let predictedNextTime24h = 0;
 
 function updatePrediction() {
+    // Short-term prediction (last 5)
     const el = document.getElementById('prediction-timer');
-    if (!el) return;
-    
-    if (predictedNextTime > 0) {
+    if (el && predictedNextTime > 0) {
         let diff = predictedNextTime - Date.now();
         if (diff > 0) {
             let diffSecs = Math.floor(diff / 1000);
@@ -36,6 +36,29 @@ function updatePrediction() {
             let s = overdueSecs % 60;
             el.textContent = `OVERDUE by ${m}m ${s}s`;
             el.style.color = '#ff3333';
+        }
+    }
+    
+    // Global 24h prediction
+    const el24h = document.getElementById('prediction-timer-24h');
+    if (el24h && predictedNextTime24h > 0) {
+        let diff = predictedNextTime24h - Date.now();
+        if (diff > 0) {
+            let diffSecs = Math.floor(diff / 1000);
+            let h = Math.floor(diffSecs / 3600);
+            let m = Math.floor((diffSecs % 3600) / 60);
+            let s = diffSecs % 60;
+            let text = h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+            el24h.textContent = text;
+            el24h.style.color = '#00ffcc'; // Cyan
+        } else {
+            let overdueSecs = Math.floor(Math.abs(diff) / 1000);
+            let h = Math.floor(overdueSecs / 3600);
+            let m = Math.floor((overdueSecs % 3600) / 60);
+            let s = overdueSecs % 60;
+            let text = h > 0 ? `OVERDUE by ${h}h ${m}m ${s}s` : `OVERDUE by ${m}m ${s}s`;
+            el24h.textContent = text;
+            el24h.style.color = '#ff3333';
         }
     }
 }
@@ -200,9 +223,21 @@ async function fetchEarthquakes() {
             if (count > 0) {
                 let avgDiff = totalDiff / count;
                 predictedNextTime = earthquakes[0].time + avgDiff;
-                updatePrediction();
             }
         }
+        
+        // Calculate global 24h average
+        if (earthquakes.length > 1) {
+            let oldest = earthquakes[earthquakes.length - 1].time;
+            let newest = earthquakes[0].time;
+            let timeSpan = newest - oldest;
+            if (timeSpan > 0) {
+                let globalAvgDiff = timeSpan / (earthquakes.length - 1);
+                predictedNextTime24h = earthquakes[0].time + globalAvgDiff;
+            }
+        }
+        
+        updatePrediction();
         
         statusDiv.textContent = `${earthquakes.length} earthquakes mapped.`;
     } catch (e) {
