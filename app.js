@@ -288,8 +288,86 @@ async function fetchEarthquakes() {
     }
 }
 
+async function fetchLongTermStats() {
+    try {
+        let resMonth = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.geojson');
+        let dataMonth = await resMonth.json();
+        
+        let monthEqs = [];
+        if (dataMonth.features) {
+            dataMonth.features.forEach(f => {
+                if (f.properties.mag >= 3.0) {
+                    monthEqs.push({
+                        mag: f.properties.mag,
+                        place: f.properties.place,
+                        time: f.properties.time
+                    });
+                }
+            });
+        }
+        
+        // Sort newest first
+        monthEqs.sort((a, b) => b.time - a.time);
+        
+        let now = Date.now();
+        let weekEqs = monthEqs.filter(eq => (now - eq.time) < 7 * 86400000);
+        
+        let calculateStats = (eqArray) => {
+            if (eqArray.length < 2) return { count: 0, avg: 'N/A', region: 'N/A' };
+            let count = eqArray.length;
+            let timeSpan = eqArray[0].time - eqArray[eqArray.length - 1].time;
+            let avgMs = timeSpan / (count - 1);
+            
+            let avgSecs = Math.floor(avgMs / 1000);
+            let h = Math.floor(avgSecs / 3600);
+            let m = Math.floor((avgSecs % 3600) / 60);
+            let s = avgSecs % 60;
+            let avgStr = h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
+            
+            let regionCounts = {};
+            let maxCount = 0;
+            let bestRegion = eqArray[0].place;
+            eqArray.forEach(eq => {
+                let cleanR = eq.place;
+                let ofIndex = cleanR.indexOf(' of ');
+                if (ofIndex > -1) cleanR = cleanR.substring(ofIndex + 4);
+                cleanR = cleanR.trim().toUpperCase();
+                regionCounts[cleanR] = (regionCounts[cleanR] || 0) + 1;
+                if (regionCounts[cleanR] > maxCount) {
+                    maxCount = regionCounts[cleanR];
+                    bestRegion = cleanR;
+                }
+            });
+            
+            return { count, avg: avgStr, region: bestRegion };
+        };
+        
+        let stats7d = calculateStats(weekEqs);
+        let stats30d = calculateStats(monthEqs);
+        
+        let updateText = (id, text) => {
+            let el = document.getElementById(id);
+            if (el) el.textContent = text;
+        };
+        
+        updateText('stat-7d-count', stats7d.count);
+        updateText('stat-7d-avg', stats7d.avg);
+        updateText('stat-7d-region', stats7d.region);
+        
+        updateText('stat-30d-count', stats30d.count);
+        updateText('stat-30d-avg', stats30d.avg);
+        updateText('stat-30d-region', stats30d.region);
+        
+    } catch(e) {
+        console.error("Failed to load long term stats", e);
+    }
+}
+
 fetchEarthquakes();
 setInterval(fetchEarthquakes, 60000); // refresh every minute
+
+fetchLongTermStats();
+setInterval(fetchLongTermStats, 3600000); // refresh every hour
 
 function draw() {
     ctx.clearRect(0, 0, width, height);
