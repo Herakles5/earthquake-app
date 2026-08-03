@@ -312,51 +312,9 @@ function draw() {
         ctx.stroke();
     }
     
-    // Draw Earthquakes First (so they are in the background)
+    // Draw Earthquakes First (so they are in the background relative to the line)
     pulseTime += 0.1;
     let pulse = (Math.sin(pulseTime) + 1.0) * 0.5;
-    
-    // Draw Dashed line between last two earthquakes if active
-    if (Date.now() < lineExpiryTime && earthquakes.length >= 2) {
-        let eq1 = earthquakes[0];
-        let eq2 = earthquakes[1];
-        
-        let r1 = ((90.0 - eq1.lat) / 180.0) * 723.0;
-        let angle1 = eq1.lon * Math.PI / 180.0;
-        let px1 = mapCx + (r1 * Math.sin(angle1)) * scale;
-        let py1 = mapCy + (r1 * Math.cos(angle1)) * scale;
-        
-        let r2 = ((90.0 - eq2.lat) / 180.0) * 723.0;
-        let angle2 = eq2.lon * Math.PI / 180.0;
-        let px2 = mapCx + (r2 * Math.sin(angle2)) * scale;
-        let py2 = mapCy + (r2 * Math.cos(angle2)) * scale;
-        
-        ctx.beginPath();
-        ctx.setLineDash([10, 10]);
-        ctx.moveTo(px1, py1);
-        ctx.lineTo(px2, py2);
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-        ctx.setLineDash([]); // Reset line dash for other drawings
-        
-        let diffMs = Math.abs(eq1.time - eq2.time);
-        let diffSecs = Math.floor(diffMs / 1000);
-        let diffMins = Math.floor(diffSecs / 60);
-        let diffHours = Math.floor(diffMins / 60);
-        let diffStr = '';
-        if (diffHours > 0) diffStr = `${diffHours}h ${diffMins % 60}m`;
-        else if (diffMins > 0) diffStr = `${diffMins}m ${diffSecs % 60}s`;
-        else diffStr = `${diffSecs}s`;
-        
-        let midX = (px1 + px2) / 2;
-        let midY = (py1 + py2) / 2;
-        
-        ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
-        ctx.font = "bold 14px Arial";
-        ctx.textAlign = "center";
-        ctx.fillText(diffStr + " apart", midX, midY - 10);
-    }
     
     for (let i = 0; i < earthquakes.length; i++) {
         let eq = earthquakes[i];
@@ -390,6 +348,51 @@ function draw() {
                 ctx.stroke();
             }
         }
+    }
+    
+    // Draw Dashed line between last two earthquakes ON TOP of earthquakes
+    if (Date.now() < lineExpiryTime && earthquakes.length >= 2) {
+        let eq1 = earthquakes[0];
+        let eq2 = earthquakes[1];
+        
+        let r1 = ((90.0 - eq1.lat) / 180.0) * 723.0;
+        let angle1 = eq1.lon * Math.PI / 180.0;
+        let px1 = mapCx + (r1 * Math.sin(angle1)) * scale;
+        let py1 = mapCy + (r1 * Math.cos(angle1)) * scale;
+        
+        let r2 = ((90.0 - eq2.lat) / 180.0) * 723.0;
+        let angle2 = eq2.lon * Math.PI / 180.0;
+        let px2 = mapCx + (r2 * Math.sin(angle2)) * scale;
+        let py2 = mapCy + (r2 * Math.cos(angle2)) * scale;
+        
+        ctx.beginPath();
+        ctx.setLineDash([10, 10]);
+        ctx.moveTo(px1, py1);
+        ctx.lineTo(px2, py2);
+        ctx.strokeStyle = "#00ffcc"; // Cyan line
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.setLineDash([]); // Reset line dash for other drawings
+        
+        let diffMs = Math.abs(eq1.time - eq2.time);
+        let diffSecs = Math.floor(diffMs / 1000);
+        let diffMins = Math.floor(diffSecs / 60);
+        let diffHours = Math.floor(diffMins / 60);
+        let diffStr = '';
+        if (diffHours > 0) diffStr = `${diffHours}h ${diffMins % 60}m`;
+        else if (diffMins > 0) diffStr = `${diffMins}m ${diffSecs % 60}s`;
+        else diffStr = `${diffSecs}s`;
+        
+        let midX = (px1 + px2) / 2;
+        let midY = (py1 + py2) / 2;
+        
+        ctx.font = "bold 16px Arial";
+        ctx.textAlign = "center";
+        ctx.lineWidth = 4;
+        ctx.strokeStyle = "rgba(0,0,0,0.8)"; // Black outline
+        ctx.strokeText(diffStr + " apart", midX, midY - 15);
+        ctx.fillStyle = "#00ffcc"; // Cyan text
+        ctx.fillText(diffStr + " apart", midX, midY - 15);
     }
     
     // Draw Coastlines ON TOP of earthquakes so islands are always visible
