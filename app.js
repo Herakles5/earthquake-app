@@ -205,6 +205,17 @@ async function fetchEarthquakes() {
                     offsetY = 0;
                     autoResetTimeout = null;
                 }, 20000);
+                
+                // Flash prediction bar to show recalculation
+                let pbar = document.getElementById('prediction-bar');
+                if (pbar) {
+                    pbar.style.transition = 'none';
+                    pbar.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+                    setTimeout(() => {
+                        pbar.style.transition = 'background-color 1.5s ease-out';
+                        pbar.style.backgroundColor = 'rgba(20, 20, 30, 0.9)';
+                    }, 50);
+                }
             }
             lastLatestTime = newestEq.time;
         }
