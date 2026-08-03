@@ -249,7 +249,17 @@ h3 {
     background: rgba(0,0,0,0.4);
     border-radius: 6px;
     padding: 10px;
-    margin-bottom: 15px;
+    margin-bottom: 10px;
+}
+
+.stat-box.mag-box {
+    background: rgba(30, 10, 10, 0.4); /* Darker reddish background for heavy earthquakes */
+    border: 1px solid rgba(255, 50, 50, 0.2);
+    margin-bottom: 20px;
+}
+
+.stat-box.mag-box h4 {
+    color: #ff5555;
 }
 
 .stat-box:last-child {
@@ -295,4 +305,14 @@ h3 {
 #stat-7d-avg, #stat-30d-avg {
     font-weight: bold;
     color: #00ffcc;
+}
+
+.stat-val-mag5 {
+    font-weight: bold;
+    color: #ff8800;
+}
+
+.stat-val-mag7 {
+    font-weight: bold;
+    color: #ff3333;
 }
