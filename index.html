@@ -22,6 +22,7 @@
             <button id="btn-zoomin">+</button>
             <button id="btn-zoomout">-</button>
             <button id="btn-reset">Reset</button>
+            <button id="btn-help">?</button>
         </div>
         
         <div id="long-term-stats">
@@ -90,6 +91,33 @@
         <div id="list-container">
             <h3>Recent (24H)</h3>
             <ul id="eq-list"></ul>
+        </div>
+        
+        <div id="help-modal" class="hidden">
+            <div class="help-content">
+                <h2>How to read this map</h2>
+                <button id="btn-close-help">×</button>
+                
+                <div class="help-section">
+                    <h3>Live Earthquakes (Map & List)</h3>
+                    <p>Shows earthquakes (M3.0+) from the last 24 hours. The dashed cyan line connects the two most recent quakes, showing the time elapsed between them.</p>
+                </div>
+                
+                <div class="help-section">
+                    <h3>Short-Term / Global Predictions</h3>
+                    <p>Uses the time gaps between the most recent 5 earthquakes (Short-term) or all 24h earthquakes (Global) to predict when the next event is statistically expected.</p>
+                </div>
+                
+                <div class="help-section">
+                    <h3>Long-Term Stats</h3>
+                    <p>Analyzes historical data from the last 7 and 30 days to establish average intervals between events.</p>
+                    <ul>
+                        <li><span class="help-highlight">HEAVY (M5.0+ / M7.0+):</span> Significant seismic events.</li>
+                        <li><span class="help-highlight">DEEP (&gt;150km):</span> Deep mantle earthquakes, which can act as precursors to larger shallow events. Indicated by a low-pitched sound and a [DEEP] tag.</li>
+                        <li><span class="help-highlight">OVERDUE:</span> Indicates that the statistical average time interval has passed without a new earthquake occurring.</li>
+                    </ul>
+                </div>
+            </div>
         </div>
     </div>
 

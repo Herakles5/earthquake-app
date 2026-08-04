@@ -333,3 +333,98 @@ h3 {
     font-weight: bold;
     color: #88bbff;
 }
+
+.hidden {
+    display: none !important;
+}
+
+#help-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(10, 10, 15, 0.85);
+    backdrop-filter: blur(8px);
+    z-index: 100;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    pointer-events: auto;
+}
+
+.help-content {
+    position: relative;
+    background: rgba(25, 25, 35, 0.95);
+    border: 1px solid rgba(255,136,0,0.5);
+    border-radius: 12px;
+    padding: 30px;
+    max-width: 600px;
+    width: 90%;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+    color: #ddd;
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+.help-content h2 {
+    color: #ff8800;
+    margin-bottom: 20px;
+    font-size: 22px;
+    letter-spacing: 1px;
+    border-bottom: 1px solid rgba(255,136,0,0.3);
+    padding-bottom: 10px;
+}
+
+#btn-close-help {
+    position: absolute;
+    top: 15px;
+    right: 20px;
+    background: transparent;
+    border: none;
+    color: #888;
+    font-size: 32px;
+    cursor: pointer;
+    line-height: 1;
+    width: auto;
+    height: auto;
+    box-shadow: none;
+    padding: 0;
+}
+
+#btn-close-help:hover {
+    color: #fff;
+    transform: none;
+    background: transparent;
+}
+
+.help-section {
+    margin-bottom: 20px;
+}
+
+.help-section:last-child {
+    margin-bottom: 0;
+}
+
+.help-section h3 {
+    color: #fff;
+    font-size: 16px;
+    margin-bottom: 8px;
+    border: none;
+    padding: 0;
+    text-transform: none;
+}
+
+.help-section ul {
+    margin-top: 8px;
+    margin-left: 20px;
+}
+
+.help-section li {
+    margin-bottom: 5px;
+}
+
+.help-highlight {
+    font-weight: bold;
+    color: #ff33ff;
+}

@@ -686,3 +686,19 @@ window.addEventListener('touchmove', e => {
         lastTouchDistance = dist;
     }
 });
+
+// Help Modal Controls
+document.getElementById('btn-help').addEventListener('click', () => {
+    document.getElementById('help-modal').classList.remove('hidden');
+});
+
+document.getElementById('btn-close-help').addEventListener('click', () => {
+    document.getElementById('help-modal').classList.add('hidden');
+});
+
+// Close modal when clicking outside the content
+document.getElementById('help-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'help-modal') {
+        document.getElementById('help-modal').classList.add('hidden');
+    }
+});
