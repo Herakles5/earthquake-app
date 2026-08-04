@@ -24,6 +24,8 @@ let predictedNextTime7dMag5 = 0;
 let predictedNextTime7dMag7 = 0;
 let predictedNextTime30dMag5 = 0;
 let predictedNextTime30dMag7 = 0;
+let predictedNextTime7dDeep = 0;
+let predictedNextTime30dDeep = 0;
 
 function updatePrediction() {
     // Short-term prediction (last 5)
@@ -113,6 +115,9 @@ function updatePrediction() {
     
     renderCountdown('stat-30d-mag5-avg', predictedNextTime30dMag5, '#ff8800');
     renderCountdown('stat-30d-mag7-avg', predictedNextTime30dMag7, '#ff3333');
+    
+    renderCountdown('stat-7d-deep-avg', predictedNextTime7dDeep, '#88bbff');
+    renderCountdown('stat-30d-deep-avg', predictedNextTime30dDeep, '#88bbff');
 }
 setInterval(updatePrediction, 1000);
 
@@ -173,6 +178,7 @@ async function fetchEarthquakes() {
                         place: f.properties.place,
                         lon: f.geometry.coordinates[0],
                         lat: f.geometry.coordinates[1],
+                        depth: f.geometry.coordinates[2] || 0,
                         time: f.properties.time
                     });
                 }
@@ -187,6 +193,7 @@ async function fetchEarthquakes() {
                         place: f.properties.flynn_region,
                         lon: f.geometry.coordinates[0],
                         lat: f.geometry.coordinates[1],
+                        depth: f.geometry.coordinates[2] || f.properties.depth || 0,
                         time: new Date(f.properties.time).getTime()
                     });
                 }
@@ -352,6 +359,7 @@ async function fetchLongTermStats() {
                     monthEqs.push({
                         mag: f.properties.mag,
                         place: f.properties.place,
+                        depth: f.geometry.coordinates[2] || 0,
                         time: f.properties.time
                     });
                 }
@@ -365,7 +373,7 @@ async function fetchLongTermStats() {
         let weekEqs = monthEqs.filter(eq => (now - eq.time) < 7 * 86400000);
         
         let calculateStats = (eqArray) => {
-            if (eqArray.length < 2) return { count: 0, avgMs: 0, region: 'N/A', mag5: 0, mag7: 0, mag5AvgMs: 0, mag7AvgMs: 0, mag5Last: 0, mag7Last: 0 };
+            if (eqArray.length < 2) return { count: 0, avgMs: 0, region: 'N/A', mag5: 0, mag7: 0, deep: 0, mag5AvgMs: 0, mag7AvgMs: 0, deepAvgMs: 0, mag5Last: 0, mag7Last: 0, deepLast: 0 };
             let count = eqArray.length;
             let timeSpan = eqArray[0].time - eqArray[eqArray.length - 1].time;
             let avgMs = timeSpan / (count - 1);
@@ -376,6 +384,7 @@ async function fetchLongTermStats() {
             
             let mag5Eqs = eqArray.filter(eq => eq.mag >= 5.0);
             let mag7Eqs = eqArray.filter(eq => eq.mag >= 7.0);
+            let deepEqs = eqArray.filter(eq => eq.depth >= 150.0);
             
             let mag5AvgMs = 0;
             if (mag5Eqs.length >= 2) {
@@ -385,6 +394,11 @@ async function fetchLongTermStats() {
             let mag7AvgMs = 0;
             if (mag7Eqs.length >= 2) {
                 mag7AvgMs = (mag7Eqs[0].time - mag7Eqs[mag7Eqs.length - 1].time) / (mag7Eqs.length - 1);
+            }
+
+            let deepAvgMs = 0;
+            if (deepEqs.length >= 2) {
+                deepAvgMs = (deepEqs[0].time - deepEqs[deepEqs.length - 1].time) / (deepEqs.length - 1);
             }
             
             eqArray.forEach(eq => {
@@ -401,10 +415,11 @@ async function fetchLongTermStats() {
             
             return { 
                 count, avgMs, region: bestRegion, 
-                mag5: mag5Eqs.length, mag7: mag7Eqs.length,
-                mag5AvgMs, mag7AvgMs,
+                mag5: mag5Eqs.length, mag7: mag7Eqs.length, deep: deepEqs.length,
+                mag5AvgMs, mag7AvgMs, deepAvgMs,
                 mag5Last: mag5Eqs.length > 0 ? mag5Eqs[0].time : 0,
-                mag7Last: mag7Eqs.length > 0 ? mag7Eqs[0].time : 0
+                mag7Last: mag7Eqs.length > 0 ? mag7Eqs[0].time : 0,
+                deepLast: deepEqs.length > 0 ? deepEqs[0].time : 0
             };
         };
         
@@ -416,9 +431,11 @@ async function fetchLongTermStats() {
         
         if (stats7d.mag5AvgMs > 0) predictedNextTime7dMag5 = stats7d.mag5Last + stats7d.mag5AvgMs;
         if (stats7d.mag7AvgMs > 0) predictedNextTime7dMag7 = stats7d.mag7Last + stats7d.mag7AvgMs;
+        if (stats7d.deepAvgMs > 0) predictedNextTime7dDeep = stats7d.deepLast + stats7d.deepAvgMs;
         
         if (stats30d.mag5AvgMs > 0) predictedNextTime30dMag5 = stats30d.mag5Last + stats30d.mag5AvgMs;
         if (stats30d.mag7AvgMs > 0) predictedNextTime30dMag7 = stats30d.mag7Last + stats30d.mag7AvgMs;
+        if (stats30d.deepAvgMs > 0) predictedNextTime30dDeep = stats30d.deepLast + stats30d.deepAvgMs;
         
         let updateText = (id, text) => {
             let el = document.getElementById(id);
@@ -428,11 +445,13 @@ async function fetchLongTermStats() {
         updateText('stat-7d-count', stats7d.count);
         updateText('stat-7d-mag5', stats7d.mag5);
         updateText('stat-7d-mag7', stats7d.mag7);
+        updateText('stat-7d-deep', stats7d.deep);
         updateText('stat-7d-region', stats7d.region);
         
         updateText('stat-30d-count', stats30d.count);
         updateText('stat-30d-mag5', stats30d.mag5);
         updateText('stat-30d-mag7', stats30d.mag7);
+        updateText('stat-30d-deep', stats30d.deep);
         updateText('stat-30d-region', stats30d.region);
         
         updatePrediction();

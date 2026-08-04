@@ -258,8 +258,18 @@ h3 {
     margin-bottom: 20px;
 }
 
+.stat-box.deep-box {
+    background: rgba(10, 10, 40, 0.4); /* Dark blueish background for deep earthquakes */
+    border: 1px solid rgba(100, 150, 255, 0.2);
+    margin-bottom: 20px;
+}
+
 .stat-box.mag-box h4 {
     color: #ff5555;
+}
+
+.stat-box.deep-box h4 {
+    color: #88bbff;
 }
 
 .stat-box:last-child {
@@ -315,4 +325,9 @@ h3 {
 .stat-val-mag7 {
     font-weight: bold;
     color: #ff3333;
+}
+
+.stat-val-deep {
+    font-weight: bold;
+    color: #88bbff;
 }
