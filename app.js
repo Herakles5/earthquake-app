@@ -147,6 +147,31 @@ function playBeep() {
     } catch(e) {}
 }
 
+function playDeepBeep() {
+    if (!audioAllowed) return;
+    try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const ctx = new AudioContext();
+        
+        // Lower pitch, longer ominous sound for deep earthquakes
+        const osc = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(150, ctx.currentTime); // Low pitch
+        osc.frequency.linearRampToValueAtTime(50, ctx.currentTime + 1.0);
+        
+        gainNode.gain.setValueAtTime(0.8, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.0);
+        
+        osc.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        
+        osc.start();
+        osc.stop(ctx.currentTime + 1.0);
+    } catch(e) {}
+}
+
 function resize() {
     width = window.innerWidth;
     height = window.innerHeight;
@@ -232,7 +257,8 @@ async function fetchEarthquakes() {
             let d = new Date(eq.time);
             let timeStr = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
             
-            li.textContent = `[${timeStr}] M${eq.mag.toFixed(1)} - ${eq.place}`;
+            let deepText = eq.depth >= 150.0 ? " [DEEP]" : "";
+            li.textContent = `[${timeStr}] M${eq.mag.toFixed(1)}${deepText} - ${eq.place}`;
             eqList.appendChild(li);
         }
         
@@ -240,7 +266,11 @@ async function fetchEarthquakes() {
             let newestEq = earthquakes[0];
             if (lastLatestTime > 0 && newestEq.time > lastLatestTime) {
                 // New earthquake!
-                playBeep();
+                if (newestEq.depth >= 150.0) {
+                    playDeepBeep();
+                } else {
+                    playBeep();
+                }
                 
                 // Set expiry for the dashed line (120 seconds from now)
                 lineExpiryTime = Date.now() + 120000;
