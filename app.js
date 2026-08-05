@@ -130,35 +130,51 @@ async function loadSounds() {
 }
 loadSounds();
 
-window.addEventListener('click', () => {
-    audioAllowed = true;
-    initAudio();
-    if (!audioUnlocked && audioCtx) {
-        const osc = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        gainNode.gain.value = 0;
-        osc.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.01);
-        audioUnlocked = true;
-    }
-});
+let soundManuallyDisabled = false;
+const btnSound = document.getElementById('btn-sound');
 
-window.addEventListener('touchstart', () => {
-    audioAllowed = true;
-    initAudio();
-    if (!audioUnlocked && audioCtx) {
-        const osc = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        gainNode.gain.value = 0;
-        osc.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.01);
-        audioUnlocked = true;
+if (btnSound) {
+    btnSound.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (audioAllowed) {
+            audioAllowed = false;
+            soundManuallyDisabled = true;
+            btnSound.textContent = "Sound: OFF";
+            btnSound.style.backgroundColor = "#ff3333";
+        } else {
+            audioAllowed = true;
+            soundManuallyDisabled = false;
+            btnSound.textContent = "Sound: ON";
+            btnSound.style.backgroundColor = "#00cc66";
+            initAudio();
+            playBeep(); // Test sound
+        }
+    });
+}
+
+function autoEnableSound() {
+    if (!audioAllowed && !soundManuallyDisabled) {
+        audioAllowed = true;
+        if (btnSound) {
+            btnSound.textContent = "Sound: ON";
+            btnSound.style.backgroundColor = "#00cc66";
+        }
+        initAudio();
+        if (!audioUnlocked && audioCtx) {
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            gainNode.gain.value = 0;
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.01);
+            audioUnlocked = true;
+        }
     }
-});
+}
+
+window.addEventListener('click', autoEnableSound);
+window.addEventListener('touchstart', autoEnableSound);
 
 function playHorn(isDeep) {
     if (!audioAllowed || !audioCtx) return;
