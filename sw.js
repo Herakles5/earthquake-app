@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eq-store-v8';
+const CACHE_NAME = 'eq-store-v9';
 
 self.addEventListener('install', (e) => {
     e.waitUntil(

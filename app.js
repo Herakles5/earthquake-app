@@ -11,6 +11,7 @@ let isDragging = false;
 let startX, startY;
 
 let earthquakes = [];
+let pulseTime = 0;
 let lastMouseX = 0;
 let lastMouseY = 0;
 let lineExpiryTime = 0;
