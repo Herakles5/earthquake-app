@@ -167,8 +167,33 @@ h3 {
     text-align: center;
     letter-spacing: 1px;
     display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 25px;
+}
+
+.pred-column {
+    display: flex;
     flex-direction: column;
     gap: 8px;
+    min-width: 250px;
+}
+
+.pred-col-title {
+    color: #00ffcc; /* Default title color */
+    font-weight: bold;
+    font-size: 14px;
+    border-bottom: 1px solid rgba(255,255,255,0.2);
+    padding-bottom: 5px;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+}
+
+.pred-main-divider {
+    width: 1px;
+    background: rgba(255,255,255,0.2);
+    margin: 5px 0;
 }
 
 .pred-group {

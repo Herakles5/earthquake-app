@@ -18,6 +18,8 @@ let autoResetTimeout = null;
 let lineExpiryTime = 0;
 let predictedNextTime = 0;
 let predictedNextTime24h = 0;
+let predictedNextTimeM4 = 0;
+let predictedNextTime24hM4 = 0;
 let predictedNextTime7d = 0;
 let predictedNextTime30d = 0;
 let predictedNextTime7dMag5 = 0;
@@ -29,84 +31,16 @@ let predictedNextTime30dDeep = 0;
 
 function updatePrediction() {
     // Short-term prediction (last 5)
-    const el = document.getElementById('prediction-timer');
-    if (el && predictedNextTime > 0) {
-        let diff = predictedNextTime - Date.now();
-        if (diff > 0) {
-            let diffSecs = Math.floor(diff / 1000);
-            let m = Math.floor(diffSecs / 60);
-            let s = diffSecs % 60;
-            el.textContent = `${m}m ${s}s`;
-            el.style.color = '#ff8800';
-        } else {
-            let overdueSecs = Math.floor(Math.abs(diff) / 1000);
-            let m = Math.floor(overdueSecs / 60);
-            let s = overdueSecs % 60;
-            el.textContent = `OVERDUE by ${m}m ${s}s`;
-            el.style.color = '#ff3333';
-        }
-    }
-    
+    renderCountdown('prediction-timer', predictedNextTime, '#ff8800');
     // Global 24h prediction
-    const el24h = document.getElementById('prediction-timer-24h');
-    if (el24h && predictedNextTime24h > 0) {
-        let diff = predictedNextTime24h - Date.now();
-        if (diff > 0) {
-            let diffSecs = Math.floor(diff / 1000);
-            let h = Math.floor(diffSecs / 3600);
-            let m = Math.floor((diffSecs % 3600) / 60);
-            let s = diffSecs % 60;
-            let text = h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
-            el24h.textContent = text;
-            el24h.style.color = '#00ffcc'; // Cyan
-        } else {
-            let overdueSecs = Math.floor(Math.abs(diff) / 1000);
-            let h = Math.floor(overdueSecs / 3600);
-            let m = Math.floor((overdueSecs % 3600) / 60);
-            let s = overdueSecs % 60;
-            let text = h > 0 ? `OVERDUE by ${h}h ${m}m ${s}s` : `OVERDUE by ${m}m ${s}s`;
-            el24h.textContent = text;
-            el24h.style.color = '#ff3333';
-        }
-    }
+    renderCountdown('prediction-timer-24h', predictedNextTime24h, '#00ffcc');
     
-    let renderCountdown = (id, predictedTime, normalColor) => {
-        const el = document.getElementById(id);
-        if (el && predictedTime > 0) {
-            let diff = predictedTime - Date.now();
-            if (diff > 0) {
-                let diffSecs = Math.floor(diff / 1000);
-                let d = Math.floor(diffSecs / 86400);
-                let h = Math.floor((diffSecs % 86400) / 3600);
-                let m = Math.floor((diffSecs % 3600) / 60);
-                let s = diffSecs % 60;
-                let text = "";
-                if (d > 0) text = `${d}d ${h}h ${m}m ${s}s`;
-                else if (h > 0) text = `${h}h ${m}m ${s}s`;
-                else text = `${m}m ${s}s`;
-                
-                el.textContent = text;
-                el.style.color = normalColor;
-            } else {
-                let overdueSecs = Math.floor(Math.abs(diff) / 1000);
-                let d = Math.floor(overdueSecs / 86400);
-                let h = Math.floor((overdueSecs % 86400) / 3600);
-                let m = Math.floor((overdueSecs % 3600) / 60);
-                let s = overdueSecs % 60;
-                let text = "";
-                if (d > 0) text = `OVERDUE by ${d}d ${h}h ${m}m ${s}s`;
-                else if (h > 0) text = `OVERDUE by ${h}h ${m}m ${s}s`;
-                else text = `OVERDUE by ${m}m ${s}s`;
-                
-                el.textContent = text;
-                el.style.color = '#ff3333';
-            }
-        } else if (el) {
-            el.textContent = 'Calculating...';
-        }
-    };
+    // M4 Short-term prediction
+    renderCountdown('prediction-timer-m4', predictedNextTimeM4, '#ff3333');
+    // M4 Global 24h prediction
+    renderCountdown('prediction-timer-24h-m4', predictedNextTime24hM4, '#ff3333');
     
-    // Global predictions
+    // Global long term predictions
     renderCountdown('stat-7d-avg', predictedNextTime7d, '#00ffcc');
     renderCountdown('stat-30d-avg', predictedNextTime30d, '#00ffcc');
     
@@ -337,6 +271,35 @@ async function fetchEarthquakes() {
             }
         }
         
+        // --- Calculate M4.0+ Predictions ---
+        let eqsM4 = earthquakes.filter(eq => eq.mag >= 4.0);
+        
+        if (eqsM4.length >= 5) {
+            let totalDiff = 0;
+            let count = 0;
+            for (let i = 0; i < 4; i++) {
+                let diff = Math.abs(eqsM4[i].time - eqsM4[i+1].time);
+                if (diff < 86400000) { 
+                    totalDiff += diff;
+                    count++;
+                }
+            }
+            if (count > 0) {
+                let avgDiff = totalDiff / count;
+                predictedNextTimeM4 = eqsM4[0].time + avgDiff;
+            }
+        }
+        
+        if (eqsM4.length > 1) {
+            let oldest = eqsM4[eqsM4.length - 1].time;
+            let newest = eqsM4[0].time;
+            let timeSpan = newest - oldest;
+            if (timeSpan > 0) {
+                let globalAvgDiff = timeSpan / (eqsM4.length - 1);
+                predictedNextTime24hM4 = eqsM4[0].time + globalAvgDiff;
+            }
+        }
+        
         // Calculate predicted region
         if (earthquakes.length > 0) {
             let getBestRegion = (limit) => {
@@ -366,6 +329,34 @@ async function fetchEarthquakes() {
             
             let reg24 = document.getElementById('prediction-region-24h');
             if (reg24) reg24.textContent = getBestRegion(earthquakes.length);
+        }
+        
+        if (eqsM4.length > 0) {
+            let getBestRegionM4 = (limit) => {
+                let regionCounts = {};
+                let maxCount = 0;
+                let bestRegion = eqsM4[0].place;
+                let actualLimit = Math.min(limit, eqsM4.length);
+                for (let i = 0; i < actualLimit; i++) {
+                    let r = eqsM4[i].place;
+                    let cleanR = r;
+                    let ofIndex = r.indexOf(' of ');
+                    if (ofIndex > -1) cleanR = r.substring(ofIndex + 4);
+                    cleanR = cleanR.trim().toUpperCase();
+                    regionCounts[cleanR] = (regionCounts[cleanR] || 0) + 1;
+                    if (regionCounts[cleanR] > maxCount) {
+                        maxCount = regionCounts[cleanR];
+                        bestRegion = cleanR;
+                    }
+                }
+                return bestRegion;
+            };
+            
+            let reg5m4 = document.getElementById('prediction-region-5-m4');
+            if (reg5m4) reg5m4.textContent = getBestRegionM4(5);
+            
+            let reg24m4 = document.getElementById('prediction-region-24h-m4');
+            if (reg24m4) reg24m4.textContent = getBestRegionM4(eqsM4.length);
         }
         
         updatePrediction();

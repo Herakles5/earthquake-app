@@ -67,23 +67,51 @@
         </div>
         
         <div id="prediction-bar">
-            <div class="pred-group">
-                <div class="pred-row">
-                    <span class="pred-label">Short-term (last 5):</span> <span id="prediction-timer">Calculating...</span>
+            <div class="pred-column">
+                <div class="pred-col-title">ALL (M3.0+)</div>
+                <div class="pred-group">
+                    <div class="pred-row">
+                        <span class="pred-label">Short (last 5):</span> <span id="prediction-timer">Calculating...</span>
+                    </div>
+                    <div class="pred-row">
+                        <span class="pred-label">Region:</span> <span id="prediction-region-5">Calculating...</span>
+                    </div>
                 </div>
-                <div class="pred-row">
-                    <span class="pred-label">Region (last 5):</span> <span id="prediction-region-5">Calculating...</span>
+                
+                <div class="pred-divider"></div>
+                
+                <div class="pred-group">
+                    <div class="pred-row">
+                        <span class="pred-label">Global (24h):</span> <span id="prediction-timer-24h">Calculating...</span>
+                    </div>
+                    <div class="pred-row">
+                        <span class="pred-label">Region:</span> <span id="prediction-region-24h">Calculating...</span>
+                    </div>
                 </div>
             </div>
             
-            <div class="pred-divider"></div>
+            <div class="pred-main-divider"></div>
             
-            <div class="pred-group">
-                <div class="pred-row">
-                    <span class="pred-label">Global (24h avg):</span> <span id="prediction-timer-24h">Calculating...</span>
+            <div class="pred-column">
+                <div class="pred-col-title" style="color:#ff8800;">MODERATE (M4.0+)</div>
+                <div class="pred-group">
+                    <div class="pred-row">
+                        <span class="pred-label">Short (last 5):</span> <span id="prediction-timer-m4">Calculating...</span>
+                    </div>
+                    <div class="pred-row">
+                        <span class="pred-label">Region:</span> <span id="prediction-region-5-m4">Calculating...</span>
+                    </div>
                 </div>
-                <div class="pred-row">
-                    <span class="pred-label">Region (24h):</span> <span id="prediction-region-24h">Calculating...</span>
+                
+                <div class="pred-divider"></div>
+                
+                <div class="pred-group">
+                    <div class="pred-row">
+                        <span class="pred-label">Global (24h):</span> <span id="prediction-timer-24h-m4">Calculating...</span>
+                    </div>
+                    <div class="pred-row">
+                        <span class="pred-label">Region:</span> <span id="prediction-region-24h-m4">Calculating...</span>
+                    </div>
                 </div>
             </div>
         </div>
