@@ -445,52 +445,148 @@ h3 {
     color: #ff33ff;
 }
 
-@media (max-width: 900px) {
-    #long-term-stats {
-        transform: scale(0.65);
-        transform-origin: top left;
-        top: 60px;
-    }
-    
+@media (max-width: 768px) {
     #prediction-bar {
-        transform: translateX(-50%) scale(0.65);
-        transform-origin: bottom center;
-        bottom: 10px;
-        flex-direction: column;
-        gap: 15px;
+        bottom: 5px;
+        left: 5px;
+        right: 5px; /* Stretch across bottom */
+        transform: none;
+        width: auto;
+        flex-direction: row; /* Keep row if possible, but shrink text */
+        padding: 8px;
+        gap: 10px;
+        font-size: 10px;
+        border-radius: 12px;
     }
     
-    .pred-main-divider {
-        width: 100%;
-        height: 1px;
-        margin: 0;
+    /* If screen is extremely narrow, stack them */
+    @media (max-width: 480px) {
+        #prediction-bar {
+            flex-direction: column;
+            gap: 5px;
+        }
+        .pred-main-divider {
+            width: 100%;
+            height: 1px;
+            margin: 2px 0;
+        }
+    }
+
+    .pred-column {
+        min-width: 0;
+        gap: 3px;
+        flex: 1; /* Allow columns to share space */
+    }
+    
+    .pred-row {
+        gap: 5px;
+    }
+    
+    .pred-label {
+        font-size: 9px;
+    }
+
+    #prediction-timer, #prediction-timer-24h, #prediction-region-5, #prediction-region-24h,
+    #prediction-timer-m4, #prediction-timer-24h-m4, #prediction-region-5-m4, #prediction-region-24h-m4 {
+        font-size: 11px;
+    }
+    
+    .pred-col-title {
+        font-size: 10px;
+        margin-bottom: 2px;
+        padding-bottom: 2px;
+    }
+    
+    #long-term-stats {
+        top: 50px;
+        left: 5px;
+        width: 140px;
+    }
+    
+    .stat-box {
+        padding: 8px;
+        margin-bottom: 8px;
+        border-radius: 8px;
+    }
+    
+    .stat-box h4 {
+        font-size: 9px;
+        margin-bottom: 4px;
+    }
+    
+    .stat-row {
+        font-size: 9px;
+        margin-bottom: 2px;
+        flex-direction: column; /* Stack label and value */
+        align-items: flex-start;
+        gap: 1px;
+    }
+    
+    .stat-val-reg {
+        font-size: 8px;
     }
     
     #list-container {
-        transform: scale(0.7);
-        transform-origin: top right;
-        top: 15px;
-        right: 15px;
-        max-height: 60vh;
+        top: 50px;
+        right: 5px;
+        width: 130px;
+        padding: 8px;
+        max-height: 40vh;
+        border-radius: 8px;
+    }
+    
+    #list-container h3 {
+        font-size: 10px;
+        margin-bottom: 5px;
+    }
+    
+    #eq-list li {
+        font-size: 8px;
+        margin-bottom: 4px;
     }
     
     #controls {
-        transform: scale(0.75);
-        transform-origin: bottom left;
-        bottom: 15px;
-        left: 15px;
-        z-index: 60;
+        bottom: auto;
+        top: 10px;
+        left: auto;
+        right: 10px;
+        transform: none;
+        flex-direction: row;
+        gap: 5px;
     }
     
+    #controls button {
+        width: 35px;
+        height: 35px;
+        font-size: 16px;
+        border-radius: 8px;
+        padding: 0;
+    }
+    
+    #btn-reset {
+        font-size: 11px !important;
+        padding: 0 8px !important;
+    }
+
     #header {
-        transform: scale(0.7);
-        transform-origin: top left;
         top: 10px;
-        left: 15px;
+        left: 10px;
+    }
+    
+    #header h1 {
+        font-size: 16px;
+    }
+    
+    #status {
+        font-size: 10px;
     }
     
     #help-modal .help-content {
-        transform: scale(0.8);
-        width: 100%;
+        padding: 15px;
+        font-size: 11px;
+    }
+    
+    #help-modal .help-content h2 {
+        font-size: 14px;
     }
 }
