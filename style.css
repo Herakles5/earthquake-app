@@ -112,16 +112,7 @@ button:active {
     box-shadow: 0 10px 30px rgba(0,0,0,0.5);
 }
 
-@media (max-width: 768px) {
-    #list-container {
-        top: auto;
-        bottom: 20px;
-        right: 20px;
-        left: 90px;
-        width: auto;
-        max-height: 150px; /* Small list on mobile */
-    }
-}
+/* Removed old 768px query, replacing with 900px below */
 
 h3 {
     color: #aaaaaa;
@@ -452,4 +443,54 @@ h3 {
 .help-highlight {
     font-weight: bold;
     color: #ff33ff;
+}
+
+@media (max-width: 900px) {
+    #long-term-stats {
+        transform: scale(0.65);
+        transform-origin: top left;
+        top: 60px;
+    }
+    
+    #prediction-bar {
+        transform: translateX(-50%) scale(0.65);
+        transform-origin: bottom center;
+        bottom: 10px;
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    .pred-main-divider {
+        width: 100%;
+        height: 1px;
+        margin: 0;
+    }
+    
+    #list-container {
+        transform: scale(0.7);
+        transform-origin: top right;
+        top: 15px;
+        right: 15px;
+        max-height: 60vh;
+    }
+    
+    #controls {
+        transform: scale(0.75);
+        transform-origin: bottom left;
+        bottom: 15px;
+        left: 15px;
+        z-index: 60;
+    }
+    
+    #header {
+        transform: scale(0.7);
+        transform-origin: top left;
+        top: 10px;
+        left: 15px;
+    }
+    
+    #help-modal .help-content {
+        transform: scale(0.8);
+        width: 100%;
+    }
 }

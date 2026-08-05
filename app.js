@@ -103,13 +103,36 @@ function initAudio() {
     }
 }
 
+let audioUnlocked = false;
+
 window.addEventListener('click', () => {
     audioAllowed = true;
     initAudio();
+    if (!audioUnlocked && audioCtx) {
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = 0;
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.01);
+        audioUnlocked = true;
+    }
 });
+
 window.addEventListener('touchstart', () => {
     audioAllowed = true;
     initAudio();
+    if (!audioUnlocked && audioCtx) {
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
+        gainNode.gain.value = 0;
+        osc.connect(gainNode);
+        gainNode.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + 0.01);
+        audioUnlocked = true;
+    }
 });
 
 function playBeep() {
