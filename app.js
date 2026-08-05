@@ -91,54 +91,69 @@ function updatePrediction() {
 }
 setInterval(updatePrediction, 1000);
 
-window.addEventListener('click', () => audioAllowed = true, {once: true});
-window.addEventListener('touchstart', () => audioAllowed = true, {once: true});
+let audioCtx = null;
+
+function initAudio() {
+    if (!audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        audioCtx = new AudioContext();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+
+window.addEventListener('click', () => {
+    audioAllowed = true;
+    initAudio();
+});
+window.addEventListener('touchstart', () => {
+    audioAllowed = true;
+    initAudio();
+});
 
 function playBeep() {
     if (!audioAllowed) return;
     try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        const ctx = new AudioContext();
-        const osc = ctx.createOscillator();
-        const gainNode = ctx.createGain();
+        initAudio();
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
         
         osc.type = 'sine';
-        osc.frequency.setValueAtTime(800, ctx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.3);
+        osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(200, audioCtx.currentTime + 0.3);
         
-        gainNode.gain.setValueAtTime(0.5, ctx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+        gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
         
         osc.connect(gainNode);
-        gainNode.connect(ctx.destination);
+        gainNode.connect(audioCtx.destination);
         
         osc.start();
-        osc.stop(ctx.currentTime + 0.3);
+        osc.stop(audioCtx.currentTime + 0.3);
     } catch(e) {}
 }
 
 function playDeepBeep() {
     if (!audioAllowed) return;
     try {
-        const AudioContext = window.AudioContext || window.webkitAudioContext;
-        const ctx = new AudioContext();
-        
+        initAudio();
         // Lower pitch, longer ominous sound for deep earthquakes
-        const osc = ctx.createOscillator();
-        const gainNode = ctx.createGain();
+        const osc = audioCtx.createOscillator();
+        const gainNode = audioCtx.createGain();
         
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(150, ctx.currentTime); // Low pitch
-        osc.frequency.linearRampToValueAtTime(50, ctx.currentTime + 1.0);
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime); // Low pitch
+        osc.frequency.linearRampToValueAtTime(50, audioCtx.currentTime + 1.0);
         
-        gainNode.gain.setValueAtTime(0.8, ctx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 1.0);
+        gainNode.gain.setValueAtTime(0.8, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1.0);
         
         osc.connect(gainNode);
-        gainNode.connect(ctx.destination);
+        gainNode.connect(audioCtx.destination);
         
         osc.start();
-        osc.stop(ctx.currentTime + 1.0);
+        osc.stop(audioCtx.currentTime + 1.0);
     } catch(e) {}
 }
 
