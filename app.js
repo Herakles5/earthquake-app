@@ -106,10 +106,29 @@ function initAudio() {
     }
 }
 
-let hornAudio = new Audio('horn.mp3');
-let dramaticHornAudio = new Audio('dramatic-horn.mp3');
-
 let audioUnlocked = false;
+
+let hornBuffer = null;
+let dramaticHornBuffer = null;
+
+async function loadSounds() {
+    try {
+        initAudio();
+        const [res1, res2] = await Promise.all([
+            fetch('horn.mp3'),
+            fetch('dramatic-horn.mp3')
+        ]);
+        const [buf1, buf2] = await Promise.all([
+            res1.arrayBuffer(),
+            res2.arrayBuffer()
+        ]);
+        hornBuffer = await audioCtx.decodeAudioData(buf1);
+        dramaticHornBuffer = await audioCtx.decodeAudioData(buf2);
+    } catch(e) {
+        console.log("Error loading mp3s", e);
+    }
+}
+loadSounds();
 
 window.addEventListener('click', () => {
     audioAllowed = true;
@@ -122,10 +141,6 @@ window.addEventListener('click', () => {
         gainNode.connect(audioCtx.destination);
         osc.start();
         osc.stop(audioCtx.currentTime + 0.01);
-        
-        hornAudio.load();
-        dramaticHornAudio.load();
-        
         audioUnlocked = true;
     }
 });
@@ -141,13 +156,21 @@ window.addEventListener('touchstart', () => {
         gainNode.connect(audioCtx.destination);
         osc.start();
         osc.stop(audioCtx.currentTime + 0.01);
-        
-        hornAudio.load();
-        dramaticHornAudio.load();
-        
         audioUnlocked = true;
     }
 });
+
+function playHorn(isDeep) {
+    if (!audioAllowed || !audioCtx) return;
+    let buffer = isDeep ? dramaticHornBuffer : hornBuffer;
+    if (!buffer) return;
+    try {
+        let source = audioCtx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(audioCtx.destination);
+        source.start();
+    } catch(e) {}
+}
 
 function playBeep() {
     if (!audioAllowed) return;
@@ -169,10 +192,7 @@ function playBeep() {
         osc.start();
         osc.stop(audioCtx.currentTime + 0.3);
         
-        setTimeout(() => {
-            hornAudio.currentTime = 0;
-            hornAudio.play().catch(e => console.log("Audio play failed:", e));
-        }, 300);
+        setTimeout(() => playHorn(false), 300);
     } catch(e) {}
 }
 
@@ -197,10 +217,7 @@ function playDeepBeep() {
         osc.start();
         osc.stop(audioCtx.currentTime + 1.0);
         
-        setTimeout(() => {
-            dramaticHornAudio.currentTime = 0;
-            dramaticHornAudio.play().catch(e => console.log("Audio play failed:", e));
-        }, 1000);
+        setTimeout(() => playHorn(true), 1000);
     } catch(e) {}
 }
 
