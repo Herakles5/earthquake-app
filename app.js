@@ -11,11 +11,13 @@ let isDragging = false;
 let startX, startY;
 
 let earthquakes = [];
-let pulseTime = 0;
-let lastLatestTime = 0;
+let lastMouseX = 0;
+let lastMouseY = 0;
+let lineExpiryTime = 0;
+let knownEarthquakes = new Set();
+let isInitialLoad = true;
 let audioAllowed = false;
 let autoResetTimeout = null;
-let lineExpiryTime = 0;
 let predictedNextTime = 0;
 let predictedNextTime24h = 0;
 let predictedNextTimeM4 = 0;
@@ -271,10 +273,27 @@ async function fetchEarthquakes() {
         }
         
         if (earthquakes.length > 0) {
-            let newestEq = earthquakes[0];
-            if (lastLatestTime > 0 && newestEq.time > lastLatestTime) {
+            let newQuakeAdded = null;
+            
+            for (let eq of earthquakes) {
+                let sig = `${eq.lat.toFixed(2)}_${eq.lon.toFixed(2)}_${eq.time}`;
+                if (!knownEarthquakes.has(sig)) {
+                    knownEarthquakes.add(sig);
+                    if (!isInitialLoad) {
+                        if (!newQuakeAdded || eq.time > newQuakeAdded.time) {
+                            newQuakeAdded = eq;
+                        }
+                    }
+                }
+            }
+            
+            if (knownEarthquakes.size > 3000) {
+                knownEarthquakes.clear();
+            }
+            
+            if (newQuakeAdded) {
                 // New earthquake!
-                if (newestEq.depth >= 150.0) {
+                if (newQuakeAdded.depth >= 150.0) {
                     playDeepBeep();
                 } else {
                     playBeep();
@@ -284,8 +303,8 @@ async function fetchEarthquakes() {
                 lineExpiryTime = Date.now() + 120000;
                 
                 // Auto zoom & pan
-                let r = ((90.0 - newestEq.lat) / 180.0) * 723.0;
-                let angle = newestEq.lon * Math.PI / 180.0;
+                let r = ((90.0 - newQuakeAdded.lat) / 180.0) * 723.0;
+                let angle = newQuakeAdded.lon * Math.PI / 180.0;
                 let map_x = r * Math.sin(angle);
                 let map_y = r * Math.cos(angle);
                 
@@ -314,7 +333,8 @@ async function fetchEarthquakes() {
                     }, 50);
                 }
             }
-            lastLatestTime = newestEq.time;
+            
+            isInitialLoad = false;
         }
         
         
