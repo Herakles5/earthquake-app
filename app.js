@@ -30,6 +30,42 @@ let predictedNextTime7dDeep = 0;
 let predictedNextTime30dDeep = 0;
 
 function updatePrediction() {
+    let renderCountdown = (id, predictedTime, normalColor) => {
+        const el = document.getElementById(id);
+        if (el && predictedTime > 0) {
+            let diff = predictedTime - Date.now();
+            if (diff > 0) {
+                let diffSecs = Math.floor(diff / 1000);
+                let d = Math.floor(diffSecs / 86400);
+                let h = Math.floor((diffSecs % 86400) / 3600);
+                let m = Math.floor((diffSecs % 3600) / 60);
+                let s = diffSecs % 60;
+                let text = "";
+                if (d > 0) text = `${d}d ${h}h ${m}m ${s}s`;
+                else if (h > 0) text = `${h}h ${m}m ${s}s`;
+                else text = `${m}m ${s}s`;
+                
+                el.textContent = text;
+                el.style.color = normalColor;
+            } else {
+                let overdueSecs = Math.floor(Math.abs(diff) / 1000);
+                let d = Math.floor(overdueSecs / 86400);
+                let h = Math.floor((overdueSecs % 86400) / 3600);
+                let m = Math.floor((overdueSecs % 3600) / 60);
+                let s = overdueSecs % 60;
+                let text = "";
+                if (d > 0) text = `OVERDUE by ${d}d ${h}h ${m}m ${s}s`;
+                else if (h > 0) text = `OVERDUE by ${h}h ${m}m ${s}s`;
+                else text = `OVERDUE by ${m}m ${s}s`;
+                
+                el.textContent = text;
+                el.style.color = '#ff3333';
+            }
+        } else if (el) {
+            el.textContent = 'Calculating...';
+        }
+    };
+
     // Short-term prediction (last 5)
     renderCountdown('prediction-timer', predictedNextTime, '#ff8800');
     // Global 24h prediction
