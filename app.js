@@ -106,6 +106,9 @@ function initAudio() {
     }
 }
 
+let hornAudio = new Audio('horn.mp3');
+let dramaticHornAudio = new Audio('dramatic-horn.mp3');
+
 let audioUnlocked = false;
 
 window.addEventListener('click', () => {
@@ -119,6 +122,10 @@ window.addEventListener('click', () => {
         gainNode.connect(audioCtx.destination);
         osc.start();
         osc.stop(audioCtx.currentTime + 0.01);
+        
+        hornAudio.load();
+        dramaticHornAudio.load();
+        
         audioUnlocked = true;
     }
 });
@@ -134,6 +141,10 @@ window.addEventListener('touchstart', () => {
         gainNode.connect(audioCtx.destination);
         osc.start();
         osc.stop(audioCtx.currentTime + 0.01);
+        
+        hornAudio.load();
+        dramaticHornAudio.load();
+        
         audioUnlocked = true;
     }
 });
@@ -157,6 +168,11 @@ function playBeep() {
         
         osc.start();
         osc.stop(audioCtx.currentTime + 0.3);
+        
+        setTimeout(() => {
+            hornAudio.currentTime = 0;
+            hornAudio.play().catch(e => console.log("Audio play failed:", e));
+        }, 300);
     } catch(e) {}
 }
 
@@ -180,6 +196,11 @@ function playDeepBeep() {
         
         osc.start();
         osc.stop(audioCtx.currentTime + 1.0);
+        
+        setTimeout(() => {
+            dramaticHornAudio.currentTime = 0;
+            dramaticHornAudio.play().catch(e => console.log("Audio play failed:", e));
+        }, 1000);
     } catch(e) {}
 }
 
