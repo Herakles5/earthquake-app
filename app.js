@@ -392,21 +392,42 @@ async function fetchEarthquakes() {
             isInitialLoad = false;
         }
         
-        
-        if (earthquakes.length >= 5) {
-            let totalDiff = 0;
-            let count = 0;
-            for (let i = 0; i < 4; i++) {
-                let diff = Math.abs(earthquakes[i].time - earthquakes[i+1].time);
-                if (diff < 36000000) { // ignore diffs larger than 10 hours
+        // --- Quadrant-based Predictions (NW, NE, SW, SE) ---
+        let getQuadrantAvg = (eqList) => {
+            if (eqList.length < 5) return null;
+            let totalDiff = 0, count = 0;
+            for (let i = 0; i < Math.min(10, eqList.length - 1); i++) {
+                let diff = Math.abs(eqList[i].time - eqList[i+1].time);
+                if (diff < 36000000) { // ignore diffs > 10h
                     totalDiff += diff;
                     count++;
                 }
             }
-            if (count > 0) {
-                let avgDiff = totalDiff / count;
-                predictedNextTime = earthquakes[0].time + avgDiff;
-            }
+            if (count > 0) return eqList[0].time + (totalDiff / count);
+            return null;
+        };
+
+        let nw = earthquakes.filter(eq => eq.lat >= 0 && eq.lon < 0);
+        let ne = earthquakes.filter(eq => eq.lat >= 0 && eq.lon >= 0);
+        let sw = earthquakes.filter(eq => eq.lat < 0 && eq.lon < 0);
+        let se = earthquakes.filter(eq => eq.lat < 0 && eq.lon >= 0);
+        
+        let pNW = getQuadrantAvg(nw), pNE = getQuadrantAvg(ne);
+        let pSW = getQuadrantAvg(sw), pSE = getQuadrantAvg(se);
+        
+        let validPreds = [pNW, pNE, pSW, pSE].filter(p => p !== null);
+        if (validPreds.length > 0) {
+            predictedNextTime = Math.max(...validPreds); // Take the maximum predicted time
+        } else if (earthquakes.length >= 5) {
+            predictedNextTime = getQuadrantAvg(earthquakes); // Fallback
+        }
+        
+        // Calculate Hemisphere Stats (24H)
+        let nsElem = document.getElementById('stat-hemi-ns');
+        let ewElem = document.getElementById('stat-hemi-ew');
+        if (nsElem && ewElem) {
+            nsElem.textContent = `${nw.length + ne.length} vs ${sw.length + se.length}`;
+            ewElem.textContent = `${ne.length + se.length} vs ${nw.length + sw.length}`;
         }
         
         // Calculate global 24h average
@@ -420,23 +441,20 @@ async function fetchEarthquakes() {
             }
         }
         
-        // --- Calculate M4.0+ Predictions ---
         let eqsM4 = earthquakes.filter(eq => eq.mag >= 4.0);
+        let nwM4 = eqsM4.filter(eq => eq.lat >= 0 && eq.lon < 0);
+        let neM4 = eqsM4.filter(eq => eq.lat >= 0 && eq.lon >= 0);
+        let swM4 = eqsM4.filter(eq => eq.lat < 0 && eq.lon < 0);
+        let seM4 = eqsM4.filter(eq => eq.lat < 0 && eq.lon >= 0);
         
-        if (eqsM4.length >= 5) {
-            let totalDiff = 0;
-            let count = 0;
-            for (let i = 0; i < 4; i++) {
-                let diff = Math.abs(eqsM4[i].time - eqsM4[i+1].time);
-                if (diff < 86400000) { 
-                    totalDiff += diff;
-                    count++;
-                }
-            }
-            if (count > 0) {
-                let avgDiff = totalDiff / count;
-                predictedNextTimeM4 = eqsM4[0].time + avgDiff;
-            }
+        let pNW_M4 = getQuadrantAvg(nwM4), pNE_M4 = getQuadrantAvg(neM4);
+        let pSW_M4 = getQuadrantAvg(swM4), pSE_M4 = getQuadrantAvg(seM4);
+        
+        let validPredsM4 = [pNW_M4, pNE_M4, pSW_M4, pSE_M4].filter(p => p !== null);
+        if (validPredsM4.length > 0) {
+            predictedNextTimeM4 = Math.max(...validPredsM4);
+        } else if (eqsM4.length >= 5) {
+            predictedNextTimeM4 = getQuadrantAvg(eqsM4);
         }
         
         if (eqsM4.length > 1) {
@@ -708,10 +726,19 @@ function draw() {
         }
     }
     
-    // Draw Dashed line between last two earthquakes ON TOP of earthquakes
-    if (Date.now() < lineExpiryTime && earthquakes.length >= 2) {
-        let eq1 = earthquakes[0];
-        let eq2 = earthquakes[1];
+    // --- Sonar Chain Visualization & Ripples ---
+    let now = Date.now();
+    
+    // Draw chain reaction lines between consecutive quakes in the last 15 minutes
+    for (let i = 0; i < earthquakes.length - 1; i++) {
+        let eq1 = earthquakes[i];
+        let eq2 = earthquakes[i+1];
+        
+        let ageMs = now - eq1.time;
+        if (ageMs > 900000) break; // Older than 15 mins (chain ends)
+        
+        let diffMs = Math.abs(eq1.time - eq2.time);
+        if (diffMs > 900000) continue; // Only connect if they happened within 15 minutes of each other
         
         let r1 = ((90.0 - eq1.lat) / 180.0) * 723.0;
         let angle1 = eq1.lon * Math.PI / 180.0;
@@ -723,34 +750,84 @@ function draw() {
         let px2 = mapCx + (r2 * Math.sin(angle2)) * scale;
         let py2 = mapCy + (r2 * Math.cos(angle2)) * scale;
         
+        // Opacity fades with age of eq1
+        let opacity = Math.max(0.1, 1.0 - (ageMs / 900000));
+        
         ctx.beginPath();
-        ctx.setLineDash([10, 10]);
         ctx.moveTo(px1, py1);
         ctx.lineTo(px2, py2);
-        ctx.strokeStyle = "#00ffcc"; // Cyan line
-        ctx.lineWidth = 3;
+        ctx.strokeStyle = `rgba(0, 255, 204, ${opacity})`; // Cyan trail
+        ctx.lineWidth = 2;
         ctx.stroke();
-        ctx.setLineDash([]); // Reset line dash for other drawings
+    }
+    
+    // Draw text for the most recent link only
+    if (earthquakes.length >= 2) {
+        let eq1 = earthquakes[0];
+        let eq2 = earthquakes[1];
+        let ageMs = now - eq1.time;
+        if (ageMs < 120000) { // Text visible for 2 mins
+            let r1 = ((90.0 - eq1.lat) / 180.0) * 723.0;
+            let angle1 = eq1.lon * Math.PI / 180.0;
+            let px1 = mapCx + (r1 * Math.sin(angle1)) * scale;
+            let py1 = mapCy + (r1 * Math.cos(angle1)) * scale;
+            
+            let r2 = ((90.0 - eq2.lat) / 180.0) * 723.0;
+            let angle2 = eq2.lon * Math.PI / 180.0;
+            let px2 = mapCx + (r2 * Math.sin(angle2)) * scale;
+            let py2 = mapCy + (r2 * Math.cos(angle2)) * scale;
+            
+            let diffMs = Math.abs(eq1.time - eq2.time);
+            let diffSecs = Math.floor(diffMs / 1000);
+            let diffMins = Math.floor(diffSecs / 60);
+            let diffHours = Math.floor(diffMins / 60);
+            let diffStr = '';
+            if (diffHours > 0) diffStr = `${diffHours}h ${diffMins % 60}m`;
+            else if (diffMins > 0) diffStr = `${diffMins}m ${diffSecs % 60}s`;
+            else diffStr = `${diffSecs}s`;
+            
+            let midX = (px1 + px2) / 2;
+            let midY = (py1 + py2) / 2;
+            
+            ctx.font = "bold 16px Arial";
+            ctx.textAlign = "center";
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = "rgba(0,0,0,0.8)"; 
+            ctx.strokeText(diffStr + " apart", midX, midY - 15);
+            ctx.fillStyle = "#00ffcc";
+            ctx.fillText(diffStr + " apart", midX, midY - 15);
+        }
+    }
+    
+    // Draw Sonar Ripples on quakes < 15 mins old
+    for (let i = 0; i < earthquakes.length; i++) {
+        let eq = earthquakes[i];
+        let ageMs = now - eq.time;
+        if (ageMs > 900000) break; // Older than 15 mins
         
-        let diffMs = Math.abs(eq1.time - eq2.time);
-        let diffSecs = Math.floor(diffMs / 1000);
-        let diffMins = Math.floor(diffSecs / 60);
-        let diffHours = Math.floor(diffMins / 60);
-        let diffStr = '';
-        if (diffHours > 0) diffStr = `${diffHours}h ${diffMins % 60}m`;
-        else if (diffMins > 0) diffStr = `${diffMins}m ${diffSecs % 60}s`;
-        else diffStr = `${diffSecs}s`;
+        let r = ((90.0 - eq.lat) / 180.0) * 723.0;
+        let angle = eq.lon * Math.PI / 180.0;
+        let px = mapCx + (r * Math.sin(angle)) * scale;
+        let py = mapCy + (r * Math.cos(angle)) * scale;
         
-        let midX = (px1 + px2) / 2;
-        let midY = (py1 + py2) / 2;
+        let rippleRadius = (pulseTime * 50) % 150; // Expanding radius
+        let rippleOpacity = Math.max(0, 1.0 - (rippleRadius / 150)); // Fade out as it expands
         
-        ctx.font = "bold 16px Arial";
-        ctx.textAlign = "center";
-        ctx.lineWidth = 4;
-        ctx.strokeStyle = "rgba(0,0,0,0.8)"; // Black outline
-        ctx.strokeText(diffStr + " apart", midX, midY - 15);
-        ctx.fillStyle = "#00ffcc"; // Cyan text
-        ctx.fillText(diffStr + " apart", midX, midY - 15);
+        // Also fade out overall based on quake age
+        let overallOpacity = Math.max(0, 1.0 - (ageMs / 900000));
+        let finalOpacity = rippleOpacity * overallOpacity;
+        
+        ctx.beginPath();
+        ctx.arc(px, py, rippleRadius * zoom, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(0, 255, 204, ${finalOpacity})`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.arc(px, py, ((pulseTime * 50 + 75) % 150) * zoom, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(0, 255, 204, ${finalOpacity * 0.5})`;
+        ctx.lineWidth = 1;
+        ctx.stroke();
     }
     
     // Draw Coastlines ON TOP of earthquakes so islands are always visible
