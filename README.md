@@ -17,4 +17,4 @@ GEOFON (Deutsches GeoForschungsZentrum GFZ in Potsdam)
 Nationale Netzwerke (GeoNet, JMA) 
 and only from +3 magnitude***
 
-<img width="1920" height="1080" alt="Screenshot_2026-08-02_02-19-45" src="https://github.com/user-attachments/assets/056e1206-ffc2-42d9-9204-6e5b99a30d43" />
+<img width="1920" height="1080" alt="Screenshot_2026-08-15_17-55-47" src="https://github.com/user-attachments/assets/ddbf379f-a0a8-46ad-ac42-5e6e7ae1cf33" />
