@@ -834,13 +834,27 @@ function draw() {
     ctx.beginPath();
     ctx.strokeStyle = "rgba(120, 220, 120, 0.8)"; // Brighter green and less transparent
     ctx.lineWidth = 1.5; // Slightly thicker
-    
+
+    // Rotationseinstellungen (2.5 Stunden * 30 Grad = 75 Grad)
+    const rotationDegrees = 75; // Hier kannst du zwischen 60 und 90 feintunen
+    const theta = rotationDegrees * Math.PI / 180.0;
+    const cosT = Math.cos(theta);
+    const sinT = Math.sin(theta);
+
     for (let i = 0; i < coast_lines.length; i++) {
         let l = coast_lines[i];
-        let px1 = mapCx + l[0] * scale;
-        let py1 = mapCy + l[1] * scale;
-        let px2 = mapCx + l[2] * scale;
-        let py2 = mapCy + l[3] * scale;
+
+        // 2D-Rotation gegen den Uhrzeigersinn für den Canvas (+Y ist unten)
+        let rx1 = l[0] * cosT + l[1] * sinT;
+        let ry1 = -l[0] * sinT + l[1] * cosT;
+        
+        let rx2 = l[2] * cosT + l[3] * sinT;
+        let ry2 = -l[2] * sinT + l[3] * cosT;
+
+        let px1 = mapCx + rx1 * scale;
+        let py1 = mapCy + ry1 * scale;
+        let px2 = mapCx + rx2 * scale;
+        let py2 = mapCy + ry2 * scale;
         
         if ((px1 > 0 && px1 < width && py1 > 0 && py1 < height) || 
             (px2 > 0 && px2 < width && py2 > 0 && py2 < height)) {
