@@ -835,8 +835,8 @@ function draw() {
     ctx.strokeStyle = "rgba(120, 220, 120, 0.8)"; // Brighter green and less transparent
     ctx.lineWidth = 1.5; // Slightly thicker
 
-    // Rotationseinstellungen (2.5 Stunden * 30 Grad = 75 Grad)
-    const rotationDegrees = 75; // Hier kannst du zwischen 60 und 90 feintunen
+    // Feintuning auf 25 Grad
+    const rotationDegrees = 60; 
     const theta = rotationDegrees * Math.PI / 180.0;
     const cosT = Math.cos(theta);
     const sinT = Math.sin(theta);
