@@ -216,11 +216,12 @@ function playDeepBeep() {
     if (!audioAllowed) return;
     try {
         initAudio();
+        // Lower pitch, longer ominous sound for deep earthquakes
         const osc = audioCtx.createOscillator();
         const gainNode = audioCtx.createGain();
         
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+        osc.frequency.setValueAtTime(150, audioCtx.currentTime); // Low pitch
         osc.frequency.linearRampToValueAtTime(50, audioCtx.currentTime + 1.0);
         
         gainNode.gain.setValueAtTime(0.8, audioCtx.currentTime);
@@ -244,13 +245,6 @@ function resize() {
 }
 window.addEventListener('resize', resize);
 resize();
-
-// Helper to convert lat/lon to map coordinates matching standard equirectangular layout
-function getMapCoordinates(lat, lon) {
-    let map_x = ((lon + 180.0) / 360.0) * 1446.0;
-    let map_y = ((90.0 - lat) / 180.0) * 723.0;
-    return { x: map_x, y: map_y };
-}
 
 async function fetchEarthquakes() {
     try {
@@ -311,6 +305,7 @@ async function fetchEarthquakes() {
                 }
             }
             if (!isDuplicate) {
+                // Ensure strictly last 24 hours (86400000 ms)
                 if (Date.now() - eq.time < 86400000) {
                     earthquakes.push(eq);
                 }
@@ -352,23 +347,28 @@ async function fetchEarthquakes() {
             }
             
             if (newQuakeAdded) {
+                // New earthquake!
                 if (newQuakeAdded.depth >= 150.0) {
                     playDeepBeep();
                 } else {
                     playBeep();
                 }
                 
+                // Set expiry for the dashed line (120 seconds from now)
                 lineExpiryTime = Date.now() + 120000;
                 
-                let coords = getMapCoordinates(newQuakeAdded.lat, newQuakeAdded.lon);
-                let map_x = coords.x - 723.0; // Centered offset correction
-                let map_y = coords.y - 361.5;
+                // Auto zoom & pan
+                let r = ((90.0 - newQuakeAdded.lat) / 180.0) * 723.0;
+                let angle = newQuakeAdded.lon * Math.PI / 180.0;
+                let map_x = r * Math.sin(angle);
+                let map_y = r * Math.cos(angle);
                 
-                zoom = 3.5;
+                zoom = 3.5; // Zoom in closer
                 let targetScale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
                 offsetX = -map_x * targetScale;
                 offsetY = -map_y * targetScale;
                 
+                // Auto reset camera after 20 seconds
                 if (autoResetTimeout) clearTimeout(autoResetTimeout);
                 autoResetTimeout = setTimeout(() => {
                     zoom = 1.0;
@@ -377,6 +377,7 @@ async function fetchEarthquakes() {
                     autoResetTimeout = null;
                 }, 20000);
                 
+                // Flash prediction bar to show recalculation
                 let pbar = document.getElementById('prediction-bar');
                 if (pbar) {
                     pbar.style.transition = 'none';
@@ -391,12 +392,13 @@ async function fetchEarthquakes() {
             isInitialLoad = false;
         }
         
+        // --- Quadrant-based Predictions (NW, NE, SW, SE) ---
         let getQuadrantAvg = (eqList) => {
             if (eqList.length < 5) return null;
             let totalDiff = 0, count = 0;
             for (let i = 0; i < Math.min(10, eqList.length - 1); i++) {
                 let diff = Math.abs(eqList[i].time - eqList[i+1].time);
-                if (diff < 36000000) {
+                if (diff < 36000000) { // ignore diffs > 10h
                     totalDiff += diff;
                     count++;
                 }
@@ -415,11 +417,12 @@ async function fetchEarthquakes() {
         
         let validPreds = [pNW, pNE, pSW, pSE].filter(p => p !== null);
         if (validPreds.length > 0) {
-            predictedNextTime = Math.max(...validPreds);
+            predictedNextTime = Math.max(...validPreds); // Take the maximum predicted time
         } else if (earthquakes.length >= 5) {
-            predictedNextTime = getQuadrantAvg(earthquakes);
+            predictedNextTime = getQuadrantAvg(earthquakes); // Fallback
         }
         
+        // Calculate Hemisphere Stats (24H)
         let nsElem = document.getElementById('stat-hemi-ns');
         let ewElem = document.getElementById('stat-hemi-ew');
         if (nsElem && ewElem) {
@@ -427,6 +430,7 @@ async function fetchEarthquakes() {
             ewElem.textContent = `${ne.length + se.length} vs ${nw.length + sw.length}`;
         }
         
+        // Calculate global 24h average
         if (earthquakes.length > 1) {
             let oldest = earthquakes[earthquakes.length - 1].time;
             let newest = earthquakes[0].time;
@@ -438,7 +442,32 @@ async function fetchEarthquakes() {
         }
         
         let eqsM4 = earthquakes.filter(eq => eq.mag >= 4.0);
+        let nwM4 = eqsM4.filter(eq => eq.lat >= 0 && eq.lon < 0);
+        let neM4 = eqsM4.filter(eq => eq.lat >= 0 && eq.lon >= 0);
+        let swM4 = eqsM4.filter(eq => eq.lat < 0 && eq.lon < 0);
+        let seM4 = eqsM4.filter(eq => eq.lat < 0 && eq.lon >= 0);
         
+        let pNW_M4 = getQuadrantAvg(nwM4), pNE_M4 = getQuadrantAvg(neM4);
+        let pSW_M4 = getQuadrantAvg(swM4), pSE_M4 = getQuadrantAvg(seM4);
+        
+        let validPredsM4 = [pNW_M4, pNE_M4, pSW_M4, pSE_M4].filter(p => p !== null);
+        if (validPredsM4.length > 0) {
+            predictedNextTimeM4 = Math.max(...validPredsM4);
+        } else if (eqsM4.length >= 5) {
+            predictedNextTimeM4 = getQuadrantAvg(eqsM4);
+        }
+        
+        if (eqsM4.length > 1) {
+            let oldest = eqsM4[eqsM4.length - 1].time;
+            let newest = eqsM4[0].time;
+            let timeSpan = newest - oldest;
+            if (timeSpan > 0) {
+                let globalAvgDiff = timeSpan / (eqsM4.length - 1);
+                predictedNextTime24hM4 = eqsM4[0].time + globalAvgDiff;
+            }
+        }
+        
+        // Calculate predicted region
         if (earthquakes.length > 0) {
             let getBestRegion = (limit) => {
                 let regionCounts = {};
@@ -469,7 +498,36 @@ async function fetchEarthquakes() {
             if (reg24) reg24.textContent = getBestRegion(earthquakes.length);
         }
         
+        if (eqsM4.length > 0) {
+            let getBestRegionM4 = (limit) => {
+                let regionCounts = {};
+                let maxCount = 0;
+                let bestRegion = eqsM4[0].place;
+                let actualLimit = Math.min(limit, eqsM4.length);
+                for (let i = 0; i < actualLimit; i++) {
+                    let r = eqsM4[i].place;
+                    let cleanR = r;
+                    let ofIndex = r.indexOf(' of ');
+                    if (ofIndex > -1) cleanR = r.substring(ofIndex + 4);
+                    cleanR = cleanR.trim().toUpperCase();
+                    regionCounts[cleanR] = (regionCounts[cleanR] || 0) + 1;
+                    if (regionCounts[cleanR] > maxCount) {
+                        maxCount = regionCounts[cleanR];
+                        bestRegion = cleanR;
+                    }
+                }
+                return bestRegion;
+            };
+            
+            let reg5m4 = document.getElementById('prediction-region-5-m4');
+            if (reg5m4) reg5m4.textContent = getBestRegionM4(5);
+            
+            let reg24m4 = document.getElementById('prediction-region-24h-m4');
+            if (reg24m4) reg24m4.textContent = getBestRegionM4(eqsM4.length);
+        }
+        
         updatePrediction();
+        
         statusDiv.textContent = `${earthquakes.length} earthquakes mapped.`;
     } catch (e) {
         statusDiv.textContent = "Failed to load data.";
@@ -496,7 +554,9 @@ async function fetchLongTermStats() {
             });
         }
         
+        // Sort newest first
         monthEqs.sort((a, b) => b.time - a.time);
+        
         let now = Date.now();
         let weekEqs = monthEqs.filter(eq => (now - eq.time) < 7 * 86400000);
         
@@ -557,17 +617,43 @@ async function fetchLongTermStats() {
         if (weekEqs.length > 0 && stats7d.avgMs > 0) predictedNextTime7d = weekEqs[0].time + stats7d.avgMs;
         if (monthEqs.length > 0 && stats30d.avgMs > 0) predictedNextTime30d = monthEqs[0].time + stats30d.avgMs;
         
+        if (stats7d.mag5AvgMs > 0) predictedNextTime7dMag5 = stats7d.mag5Last + stats7d.mag5AvgMs;
+        if (stats7d.mag7AvgMs > 0) predictedNextTime7dMag7 = stats7d.mag7Last + stats7d.mag7AvgMs;
+        if (stats7d.deepAvgMs > 0) predictedNextTime7dDeep = stats7d.deepLast + stats7d.deepAvgMs;
+        
+        if (stats30d.mag5AvgMs > 0) predictedNextTime30dMag5 = stats30d.mag5Last + stats30d.mag5AvgMs;
+        if (stats30d.mag7AvgMs > 0) predictedNextTime30dMag7 = stats30d.mag7Last + stats30d.mag7AvgMs;
+        if (stats30d.deepAvgMs > 0) predictedNextTime30dDeep = stats30d.deepLast + stats30d.deepAvgMs;
+        
+        let updateText = (id, text) => {
+            let el = document.getElementById(id);
+            if (el) el.textContent = text;
+        };
+        
+        updateText('stat-7d-count', stats7d.count);
+        updateText('stat-7d-mag5', stats7d.mag5);
+        updateText('stat-7d-mag7', stats7d.mag7);
+        updateText('stat-7d-deep', stats7d.deep);
+        updateText('stat-7d-region', stats7d.region);
+        
+        updateText('stat-30d-count', stats30d.count);
+        updateText('stat-30d-mag5', stats30d.mag5);
+        updateText('stat-30d-mag7', stats30d.mag7);
+        updateText('stat-30d-deep', stats30d.deep);
+        updateText('stat-30d-region', stats30d.region);
+        
         updatePrediction();
+        
     } catch(e) {
         console.error("Failed to load long term stats", e);
     }
 }
 
 fetchEarthquakes();
-setInterval(fetchEarthquakes, 60000);
+setInterval(fetchEarthquakes, 60000); // refresh every minute
 
 fetchLongTermStats();
-setInterval(fetchLongTermStats, 3600000);
+setInterval(fetchLongTermStats, 3600000); // refresh every hour
 
 function draw() {
     ctx.clearRect(0, 0, width, height);
@@ -576,20 +662,22 @@ function draw() {
     let mapCy = height / 2 + offsetY;
     let scale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
     
-    // Draw Tectonic Plates using linear equirectangular mapping
+    // Draw Tectonic Plates
     if (typeof tectonic_plates !== 'undefined') {
         ctx.beginPath();
-        ctx.strokeStyle = "rgba(255, 105, 180, 0.4)";
+        ctx.strokeStyle = "rgba(255, 105, 180, 0.4)"; // Deep Pink, slightly transparent
         ctx.lineWidth = 1;
         for (let i = 0; i < tectonic_plates.length; i++) {
             let l = tectonic_plates[i];
-            let pt1 = getMapCoordinates(l[1], l[0]);
-            let pt2 = getMapCoordinates(l[3], l[2]);
+            let r1 = ((90.0 - l[1]) / 180.0) * 723.0;
+            let a1 = l[0] * Math.PI / 180.0;
+            let px1 = mapCx + (r1 * Math.sin(a1)) * scale;
+            let py1 = mapCy + (r1 * Math.cos(a1)) * scale;
             
-            let px1 = mapCx + (pt1.x - 723.0) * scale;
-            let py1 = mapCy + (pt1.y - 361.5) * scale;
-            let px2 = mapCx + (pt2.x - 723.0) * scale;
-            let py2 = mapCy + (pt2.y - 361.5) * scale;
+            let r2 = ((90.0 - l[3]) / 180.0) * 723.0;
+            let a2 = l[2] * Math.PI / 180.0;
+            let px2 = mapCx + (r2 * Math.sin(a2)) * scale;
+            let py2 = mapCy + (r2 * Math.cos(a2)) * scale;
             
             if ((px1 > 0 && px1 < width && py1 > 0 && py1 < height) || 
                 (px2 > 0 && px2 < width && py2 > 0 && py2 < height)) {
@@ -600,15 +688,21 @@ function draw() {
         ctx.stroke();
     }
     
+    // Draw Earthquakes First (so they are in the background relative to the line)
     pulseTime += 0.1;
     let pulse = (Math.sin(pulseTime) + 1.0) * 0.5;
     
     for (let i = 0; i < earthquakes.length; i++) {
         let eq = earthquakes[i];
-        let coords = getMapCoordinates(eq.lat, eq.lon);
         
-        let px = mapCx + (coords.x - 723.0) * scale;
-        let py = mapCy + (coords.y - 361.5) * scale;
+        let r = ((90.0 - eq.lat) / 180.0) * 723.0;
+        let angle = eq.lon * Math.PI / 180.0;
+        
+        let map_x = r * Math.sin(angle);
+        let map_y = r * Math.cos(angle);
+        
+        let px = mapCx + map_x * scale;
+        let py = mapCy + map_y * scale;
         
         let baseR = eq.mag * 1.5 * zoom;
         let rSize = baseR + pulse * eq.mag * zoom;
@@ -632,46 +726,56 @@ function draw() {
         }
     }
     
+    // --- Sonar Chain Visualization & Ripples ---
     let now = Date.now();
     
+    // Draw chain reaction lines between consecutive quakes in the last 15 minutes
     for (let i = 0; i < earthquakes.length - 1; i++) {
         let eq1 = earthquakes[i];
         let eq2 = earthquakes[i+1];
         
         let ageMs = now - eq1.time;
-        if (ageMs > 900000) break;
+        if (ageMs > 900000) break; // Older than 15 mins (chain ends)
         
         let diffMs = Math.abs(eq1.time - eq2.time);
-        if (diffMs > 900000) continue;
+        if (diffMs > 900000) continue; // Only connect if they happened within 15 minutes of each other
         
-        let c1 = getMapCoordinates(eq1.lat, eq1.lon);
-        let c2 = getMapCoordinates(eq2.lat, eq2.lon);
-        let px1 = mapCx + (c1.x - 723.0) * scale;
-        let py1 = mapCy + (c1.y - 361.5) * scale;
-        let px2 = mapCx + (c2.x - 723.0) * scale;
-        let py2 = mapCy + (c2.y - 361.5) * scale;
+        let r1 = ((90.0 - eq1.lat) / 180.0) * 723.0;
+        let angle1 = eq1.lon * Math.PI / 180.0;
+        let px1 = mapCx + (r1 * Math.sin(angle1)) * scale;
+        let py1 = mapCy + (r1 * Math.cos(angle1)) * scale;
         
+        let r2 = ((90.0 - eq2.lat) / 180.0) * 723.0;
+        let angle2 = eq2.lon * Math.PI / 180.0;
+        let px2 = mapCx + (r2 * Math.sin(angle2)) * scale;
+        let py2 = mapCy + (r2 * Math.cos(angle2)) * scale;
+        
+        // Opacity fades with age of eq1
         let opacity = Math.max(0.1, 1.0 - (ageMs / 900000));
         
         ctx.beginPath();
         ctx.moveTo(px1, py1);
         ctx.lineTo(px2, py2);
-        ctx.strokeStyle = `rgba(0, 255, 204, ${opacity})`;
+        ctx.strokeStyle = `rgba(0, 255, 204, ${opacity})`; // Cyan trail
         ctx.lineWidth = 2;
         ctx.stroke();
     }
     
+    // Draw text for the most recent link only
     if (earthquakes.length >= 2) {
         let eq1 = earthquakes[0];
         let eq2 = earthquakes[1];
         let ageMs = now - eq1.time;
-        if (ageMs < 120000) {
-            let c1 = getMapCoordinates(eq1.lat, eq1.lon);
-            let c2 = getMapCoordinates(eq2.lat, eq2.lon);
-            let px1 = mapCx + (c1.x - 723.0) * scale;
-            let py1 = mapCy + (c1.y - 361.5) * scale;
-            let px2 = mapCx + (c2.x - 723.0) * scale;
-            let py2 = mapCy + (c2.y - 361.5) * scale;
+        if (ageMs < 120000) { // Text visible for 2 mins
+            let r1 = ((90.0 - eq1.lat) / 180.0) * 723.0;
+            let angle1 = eq1.lon * Math.PI / 180.0;
+            let px1 = mapCx + (r1 * Math.sin(angle1)) * scale;
+            let py1 = mapCy + (r1 * Math.cos(angle1)) * scale;
+            
+            let r2 = ((90.0 - eq2.lat) / 180.0) * 723.0;
+            let angle2 = eq2.lon * Math.PI / 180.0;
+            let px2 = mapCx + (r2 * Math.sin(angle2)) * scale;
+            let py2 = mapCy + (r2 * Math.cos(angle2)) * scale;
             
             let diffMs = Math.abs(eq1.time - eq2.time);
             let diffSecs = Math.floor(diffMs / 1000);
@@ -695,17 +799,21 @@ function draw() {
         }
     }
     
+    // Draw Sonar Ripples on quakes < 15 mins old
     for (let i = 0; i < earthquakes.length; i++) {
         let eq = earthquakes[i];
         let ageMs = now - eq.time;
-        if (ageMs > 900000) break;
+        if (ageMs > 900000) break; // Older than 15 mins
         
-        let c = getMapCoordinates(eq.lat, eq.lon);
-        let px = mapCx + (c.x - 723.0) * scale;
-        let py = mapCy + (c.y - 361.5) * scale;
+        let r = ((90.0 - eq.lat) / 180.0) * 723.0;
+        let angle = eq.lon * Math.PI / 180.0;
+        let px = mapCx + (r * Math.sin(angle)) * scale;
+        let py = mapCy + (r * Math.cos(angle)) * scale;
         
-        let rippleRadius = (pulseTime * 50) % 150;
-        let rippleOpacity = Math.max(0, 1.0 - (rippleRadius / 150));
+        let rippleRadius = (pulseTime * 50) % 150; // Expanding radius
+        let rippleOpacity = Math.max(0, 1.0 - (rippleRadius / 150)); // Fade out as it expands
+        
+        // Also fade out overall based on quake age
         let overallOpacity = Math.max(0, 1.0 - (ageMs / 900000));
         let finalOpacity = rippleOpacity * overallOpacity;
         
@@ -722,17 +830,17 @@ function draw() {
         ctx.stroke();
     }
     
-    // Draw Coastlines
+    // Draw Coastlines ON TOP of earthquakes so islands are always visible
     ctx.beginPath();
-    ctx.strokeStyle = "rgba(120, 220, 120, 0.8)";
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(120, 220, 120, 0.8)"; // Brighter green and less transparent
+    ctx.lineWidth = 1.5; // Slightly thicker
     
     for (let i = 0; i < coast_lines.length; i++) {
         let l = coast_lines[i];
-        let px1 = mapCx + (l[0] - 723.0) * scale;
-        let py1 = mapCy + (l[1] - 361.5) * scale;
-        let px2 = mapCx + (l[2] - 723.0) * scale;
-        let py2 = mapCy + (l[3] - 361.5) * scale;
+        let px1 = mapCx + l[0] * scale;
+        let py1 = mapCy + l[1] * scale;
+        let px2 = mapCx + l[2] * scale;
+        let py2 = mapCy + l[3] * scale;
         
         if ((px1 > 0 && px1 < width && py1 > 0 && py1 < height) || 
             (px2 > 0 && px2 < width && py2 > 0 && py2 < height)) {
@@ -746,10 +854,12 @@ function draw() {
 }
 draw();
 
+// Controls
 document.getElementById('btn-zoomin').addEventListener('click', () => { zoom *= 1.3; });
 document.getElementById('btn-zoomout').addEventListener('click', () => { zoom /= 1.3; if(zoom < 0.2) zoom = 0.2; });
 document.getElementById('btn-reset').addEventListener('click', () => { zoom = 1.0; offsetX = 0; offsetY = 0; });
 
+// Touch & Drag
 canvas.addEventListener('mousedown', e => {
     isDragging = true;
     startX = e.clientX - offsetX;
@@ -794,6 +904,7 @@ window.addEventListener('touchmove', e => {
     }
 });
 
+// Help Modal Controls
 document.getElementById('btn-help').addEventListener('click', () => {
     document.getElementById('help-modal').classList.remove('hidden');
 });
@@ -802,6 +913,7 @@ document.getElementById('btn-close-help').addEventListener('click', () => {
     document.getElementById('help-modal').classList.add('hidden');
 });
 
+// Close modal when clicking outside the content
 document.getElementById('help-modal').addEventListener('click', (e) => {
     if (e.target.id === 'help-modal') {
         document.getElementById('help-modal').classList.add('hidden');
