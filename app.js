@@ -539,12 +539,12 @@ const tsunamiList = document.getElementById('tsunami-list');
 
 async function fetchTsunamis() {
     try {
-        // Hier kannst du später einen echten NOAA/PTWC RSS- oder JSON-Feed anbinden.
-        // Für den Live-Ticker nutzen wir eine strukturierte Basis:
+        // You can connect a real NOAA/PTWC RSS or JSON feed here later.
+        // For the live ticker, we use a structured base:
         const mockTsunamis = [
-            { region: "Keine akuten Tsunami-Warnungen", level: "Normalbetrieb", time: "Aktuell" },
-            { region: "Pazifischer Raum (PTWC)", level: "Keine Bedrohung aktiv", time: "Vor 1 Std" },
-            { region: "Indischer Ozean", level: "Überwachung aktiv", time: "Vor 3 Std" }
+            { region: "No active tsunami warnings", level: "Normal operation", time: "Current" },
+            { region: "Pacific Region (PTWC)", level: "No active threat", time: "1h ago" },
+            { region: "Indian Ocean", level: "Monitoring active", time: "3h ago" }
         ];
 
         tsunamiList.innerHTML = '';
@@ -555,11 +555,11 @@ async function fetchTsunamis() {
         });
 
     } catch (e) {
-        console.error("Fehler beim Laden der Tsunami-Daten", e);
+        console.error("Error loading tsunami data", e);
     }
 }
 
-// Initial aufrufen und alle 10 Minuten aktualisieren
+// Initial call and update every 10 minutes
 fetchTsunamis();
 setInterval(fetchTsunamis, 600000);
 
@@ -567,22 +567,22 @@ const volcanoList = document.getElementById('volcano-list');
 
 async function fetchVolcanoes() {
     try {
-        // Beispiel-Datenanbindung (hier kannst du einen echten Vulkan-RSS/JSON-Feed nutzen, z.B. USGS Hazards)
-        // Alternativ als Live-Ticker-Struktur aufgebaut:
-        const res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_month.geojson'); // Oder ein entsprechender Vulkan-Feed
+        // Example data connection (here you can use a real volcano RSS/JSON feed, e.g., USGS Hazards)
+        // Alternatively built as a live ticker structure:
+        const res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_month.geojson'); // Or a corresponding volcano feed
         
-        // Da offizielle Live-Vulkan-APIs oft CORS-beschränkt sind, dient hier ein robuster Parser/Fetcher:
-        // Für den Prototypen simulieren wir den Live-Ticker oder binden einen aktiven Feed ein:
+        // Since official live volcano APIs are often CORS-restricted, a robust parser/fetcher serves here:
+        // For the prototype, we simulate the live ticker or bind an active feed:
         
-        // Beispielhafte Einträge für den scrollbaren Ticker:
+        // Example entries for the scrollable ticker:
         const mockVolcanoes = [
-            { name: "Etna", location: "Italien", status: "Sturmtätigkeit / Ascheausstoß", time: "Vor 12 Min" },
-            { name: "Kilauea", location: "Hawaii, USA", status: "Erhöhte seismische Unruhe", time: "Vor 45 Min" },
-            { name: "Merapi", location: "Indonesien", status: "Pyroklastischer Strom", time: "Vor 2 Std" },
-            { name: "Sakurajima", location: "Japan", status: "Explosive Aktivität", time: "Vor 3 Std" },
-            { name: "Fuego", location: "Guatemala", status: "Aschewolke auf 4.5km Höhe", time: "Vor 5 Std" },
-            { name: "Stromboli", location: "Italien", status: "Normale strombolianische Aktivität", time: "Vor 6 Std" },
-            { name: "Ebeko", location: "Kurilen, Russland", status: "Kleine Explosion", time: "Vor 8 Std" }
+            { name: "Etna", location: "Italy", status: "Strombolian activity / ash emission", time: "12m ago" },
+            { name: "Kilauea", location: "Hawaii, USA", status: "Elevated seismic unrest", time: "45m ago" },
+            { name: "Merapi", location: "Indonesia", status: "Pyroclastic flow", time: "2h ago" },
+            { name: "Sakurajima", location: "Japan", status: "Explosive activity", time: "3h ago" },
+            { name: "Fuego", location: "Guatemala", status: "Ash plume at 4.5km altitude", time: "5h ago" },
+            { name: "Stromboli", location: "Italy", status: "Normal strombolian activity", time: "6h ago" },
+            { name: "Ebeko", location: "Kuril Islands, Russia", status: "Small explosion", time: "8h ago" }
         ];
 
         volcanoList.innerHTML = '';
@@ -593,11 +593,11 @@ async function fetchVolcanoes() {
         });
 
     } catch (e) {
-        console.error("Fehler beim Laden der Vulkan-Daten", e);
+        console.error("Error loading volcano data", e);
     }
 }
 
-// Initial aufrufen und alle 10 Minuten aktualisieren
+// Initial call and update every 10 minutes
 fetchVolcanoes();
 setInterval(fetchVolcanoes, 600000);
 
