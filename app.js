@@ -536,70 +536,115 @@ async function fetchEarthquakes() {
 }
 
 const tsunamiList = document.getElementById('tsunami-list');
-
-async function fetchTsunamis() {
-    try {
-        // You can connect a real NOAA/PTWC RSS or JSON feed here later.
-        // For the live ticker, we use a structured base:
-        const mockTsunamis = [
-            { region: "No active tsunami warnings", level: "Normal operation", time: "Current" },
-            { region: "Pacific Region (PTWC)", level: "No active threat", time: "1h ago" },
-            { region: "Indian Ocean", level: "Monitoring active", time: "3h ago" }
-        ];
-
-        tsunamiList.innerHTML = '';
-        mockTsunamis.forEach(t => {
-            let li = document.createElement('li');
-            li.innerHTML = `<strong>[${t.time}]</strong> ${t.region}<br><span style="color:#ffffff; font-size:11px;">Status: ${t.level}</span>`;
-            tsunamiList.appendChild(li);
-        });
-
-    } catch (e) {
-        console.error("Error loading tsunami data", e);
-    }
-}
-
-// Initial call and update every 10 minutes
-fetchTsunamis();
-setInterval(fetchTsunamis, 600000);
-
 const volcanoList = document.getElementById('volcano-list');
 
-async function fetchVolcanoes() {
-    try {
-        // Example data connection (here you can use a real volcano RSS/JSON feed, e.g., USGS Hazards)
-        // Alternatively built as a live ticker structure:
-        const res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_month.geojson'); // Or a corresponding volcano feed
-        
-        // Since official live volcano APIs are often CORS-restricted, a robust parser/fetcher serves here:
-        // For the prototype, we simulate the live ticker or bind an active feed:
-        
-        // Example entries for the scrollable ticker:
-        const mockVolcanoes = [
-            { name: "Etna", location: "Italy", status: "Strombolian activity / ash emission", time: "12m ago" },
-            { name: "Kilauea", location: "Hawaii, USA", status: "Elevated seismic unrest", time: "45m ago" },
-            { name: "Merapi", location: "Indonesia", status: "Pyroclastic flow", time: "2h ago" },
-            { name: "Sakurajima", location: "Japan", status: "Explosive activity", time: "3h ago" },
-            { name: "Fuego", location: "Guatemala", status: "Ash plume at 4.5km altitude", time: "5h ago" },
-            { name: "Stromboli", location: "Italy", status: "Normal strombolian activity", time: "6h ago" },
-            { name: "Ebeko", location: "Kuril Islands, Russia", status: "Small explosion", time: "8h ago" }
-        ];
+let volcanoData = [];
+let tsunamiData = [];
 
-        volcanoList.innerHTML = '';
-        mockVolcanoes.forEach(v => {
-            let li = document.createElement('li');
-            li.innerHTML = `<strong>[${v.time}]</strong> ${v.name} (${v.location})<br><span style="color:#ffffff; font-size:11px;">Status: ${v.status}</span>`;
-            volcanoList.appendChild(li);
-        });
-
-    } catch (e) {
-        console.error("Error loading volcano data", e);
-    }
+// Hilfsfunktion für relative Zeitangaben
+function getRelativeTime(timestamp) {
+    const diffMs = Date.now() - timestamp;
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    return `${diffHours}h ago`;
 }
 
-// Initial call and update every 10 minutes
-fetchVolcanoes();
-setInterval(fetchVolcanoes, 600000);
+// Vulkane rendern
+function renderVolcanoes() {
+    volcanoList.innerHTML = '';
+    if (volcanoData.length === 0) {
+        volcanoList.innerHTML = '<li>No recent significant events</li>';
+        return;
+    }
+    volcanoData.forEach(v => {
+        let li = document.createElement('li');
+        let timeStr = getRelativeTime(v.timestamp);
+        li.innerHTML = `<strong>[${timeStr}]</strong> ${v.name}<br><span style="color:#ffffff; font-size:11px;">${v.status}</span>`;
+        volcanoList.appendChild(li);
+    });
+}
+
+// Tsunamis rendern
+function renderTsunamis() {
+    tsunamiList.innerHTML = '';
+    if (tsunamiData.length === 0) {
+        tsunamiList.innerHTML = '<li>No active alerts</li>';
+        return;
+    }
+    tsunamiData.forEach(t => {
+        let li = document.createElement('li');
+        let timeStr = getRelativeTime(t.timestamp);
+        li.innerHTML = `<strong>[${timeStr}]</strong> ${t.region}<br><span style="color:#ffffff; font-size:11px;">Status: ${t.level}</span>`;
+        tsunamiList.appendChild(li);
+    });
+}
+
+// Echte Live-Daten von USGS laden und aufteilen
+async function fetchLiveTickers() {
+    try {
+        // Wir nutzen jetzt den Feed für Stärke 4.5+ der letzten 7 Tage,
+        // damit der Ticker immer gut mit signifikanten Events gefüllt ist!
+        const response = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson');
+        const data = await response.json();
+        
+        if (data && data.features) {
+            volcanoData = [];
+            tsunamiData = [];
+
+            data.features.forEach(quake => {
+                const props = quake.properties;
+                const place = props.place;
+                const mag = props.mag;
+                const time = props.time;
+                const tsunamiFlag = props.tsunami; // 1 wenn Tsunami-Warnung
+
+                // Signifikante seismische Events in den Vulkan-/Aktivitäten-Ticker schreiben
+                volcanoData.push({
+                    name: place,
+                    status: `Seismic Unrest - Mag ${mag.toFixed(1)}`,
+                    timestamp: time
+                });
+
+                // Wenn die USGS ein Tsunami-Flag setzt, in den Tsunami-Ticker schreiben
+                if (tsunamiFlag === 1) {
+                    tsunamiData.push({
+                        region: place,
+                        level: `Tsunami Warning (Mag ${mag.toFixed(1)})`,
+                        timestamp: time
+                    });
+                }
+            });
+
+            // Fallback für Tsunami-Ticker, falls weltweit keine Warnung vorliegt
+            if (tsunamiData.length === 0) {
+                tsunamiData.push({
+                    region: "Global Tsunami Monitoring",
+                    level: "No active threats reported",
+                    timestamp: Date.now()
+                });
+            }
+        }
+    } catch (e) {
+        console.error("Error fetching ticker data:", e);
+    }
+
+    renderVolcanoes();
+    renderTsunamis();
+}
+
+// Initialer Aufruf
+fetchLiveTickers();
+
+// Jede Minute Timer (relative Zeiten) aktualisieren
+setInterval(() => {
+    renderVolcanoes();
+    renderTsunamis();
+}, 60000);
+
+// Alle 5 Minuten neue Daten von der API holen
+setInterval(fetchLiveTickers, 300000);
 
 async function fetchLongTermStats() {
     try {
