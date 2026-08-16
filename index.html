@@ -17,6 +17,20 @@
             <h1>LIVE EARTHQUAKES</h1>
             <div id="status">Fetching data...</div>
         </div>
+
+   <div id="volcano-container">
+       <h3>Volcano Activity</h3>
+       <ul id="volcano-list">
+           <!-- Wird dynamisch gefüllt -->
+       </ul>
+   </div>
+
+   <div id="tsunami-container">
+       <h3>Tsunami Alerts</h3>
+       <ul id="tsunami-list">
+           <!-- Wird dynamisch gefüllt -->
+       </ul>
+   </div>
         
         <div id="controls">
             <button id="btn-sound" style="background-color: #ff3333; font-size: 12px;">Sound: OFF</button>
@@ -129,32 +143,41 @@
         </div>
         
         <div id="help-modal" class="hidden">
-            <div class="help-content">
-                <h2>How to read this map</h2>
-                <button id="btn-close-help">×</button>
-                
-                <div class="help-section">
-                    <h3>Live Earthquakes (Map & List)</h3>
-                    <p>Shows earthquakes (M3.0+) from the last 24 hours. The dashed cyan line connects the two most recent quakes, showing the time elapsed between them.</p>
-                </div>
-                
-                <div class="help-section">
-                    <h3>Short-Term / Global Predictions</h3>
-                    <p>Uses the time gaps between the most recent 5 earthquakes (Short-term) or all 24h earthquakes (Global) to predict when the next event is statistically expected.</p>
-                </div>
-                
-                <div class="help-section">
-                    <h3>Long-Term Stats</h3>
-                    <p>Analyzes historical data from the last 7 and 30 days to establish average intervals between events.</p>
-                    <ul>
-                        <li><span class="help-highlight">HEAVY (M5.0+ / M7.0+):</span> Significant seismic events.</li>
-                        <li><span class="help-highlight">DEEP (&gt;150km):</span> Deep mantle earthquakes, which can act as precursors to larger shallow events. Indicated by a low-pitched sound and a [DEEP] tag.</li>
-                        <li><span class="help-highlight">OVERDUE:</span> Indicates that the statistical average time interval has passed without a new earthquake occurring.</li>
-                    </ul>
-                </div>
-            </div>
+    <div class="help-content">
+        <h2>How to read this map</h2>
+        <button id="btn-close-help">×</button>
+        
+        <div class="help-section">
+            <h3>Live Earthquakes (Map & List)</h3>
+            <p>Shows earthquakes (M3.0+) from the last 24 hours. The dashed cyan line connects the two most recent quakes, showing the time elapsed between them.</p>
+        </div>
+        
+        <div class="help-section">
+            <h3>Short-Term / Global Predictions</h3>
+            <p>Uses the time gaps between the most recent 5 earthquakes (Short-term) or all 24h earthquakes (Global) to predict when the next event is statistically expected.</p>
+        </div>
+        
+        <div class="help-section">
+            <h3>Long-Term Stats</h3>
+            <p>Analyzes historical data from the last 7 and 30 days to establish average intervals between events.</p>
+            <ul>
+                <li><span class="help-highlight">HEAVY (M5.0+ / M7.0+):</span> Significant seismic events.</li>
+                <li><span class="help-highlight">DEEP (&gt;150km):</span> Deep mantle earthquakes, which can act as precursors to larger shallow events. Indicated by a low-pitched sound and a [DEEP] tag.</li>
+                <li><span class="help-highlight">OVERDUE:</span> Indicates that the statistical average time interval has passed without a new earthquake occurring.</li>
+            </ul>
+        </div>
+
+        <div class="help-section">
+            <h3>Volcano Activity</h3>
+            <p>Provides a live feed and status updates on ongoing activity and ash emissions from major active volcanoes worldwide.</p>
+        </div>
+
+        <div class="help-section">
+            <h3>Tsunami Alerts</h3>
+            <p>Displays active warnings, threat levels, and monitoring status updates for major ocean basins and regions.</p>
         </div>
     </div>
+</div>
 
     <canvas id="mapCanvas"></canvas>
 

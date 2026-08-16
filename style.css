@@ -112,6 +112,97 @@ button:active {
     box-shadow: 0 10px 30px rgba(0,0,0,0.5);
 }
 
+#tsunami-container {
+    position: absolute;
+    top: 20px;
+    right: 300px; /* Platziert auf der rechten Seite, links neben der Erdbeben-Liste */
+    width: 260px;
+    max-height: calc(100% - 40px);
+    background: rgba(15, 15, 20, 0.85);
+    border: 1px solid rgba(0, 150, 255, 0.2);
+    border-radius: 15px;
+    padding: 15px;
+    backdrop-filter: blur(10px);
+    overflow-y: auto; /* Scrollbar */
+    pointer-events: auto;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    z-index: 20;
+}
+
+#tsunami-container h3 {
+    color: #00aaff;
+    font-size: 14px;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1px solid rgba(0,170,255,0.3);
+    padding-bottom: 5px;
+}
+
+#tsunami-list {
+    list-style: none;
+}
+
+#tsunami-list li {
+    font-size: 13px;
+    margin-bottom: 8px;
+    line-height: 1.3;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding-bottom: 5px;
+    color: #88ccff;
+}
+
+#tsunami-list li:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+#volcano-container {
+    position: absolute;
+    top: 20px;
+    left: 360px; /* Neben deinen Long-Term-Stats oder an einer freien Stelle platziert */
+    width: 280px;
+    max-height: calc(100% - 40px);
+    background: rgba(15, 15, 20, 0.85);
+    border: 1px solid rgba(255, 100, 0, 0.2);
+    border-radius: 15px;
+    padding: 15px;
+    backdrop-filter: blur(10px);
+    overflow-y: auto; /* Macht die Liste scrollbar! */
+    pointer-events: auto;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    z-index: 20;
+}
+
+#volcano-container h3 {
+    color: #ff5500;
+    font-size: 14px;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 1px solid rgba(255,85,0,0.3);
+    padding-bottom: 5px;
+}
+
+#volcano-list {
+    list-style: none;
+}
+
+#volcano-list li {
+    font-size: 13px;
+    margin-bottom: 8px;
+    line-height: 1.3;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding-bottom: 5px;
+    color: #ffaa88;
+}
+
+#volcano-list li:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
 /* Removed old 768px query, replacing with 900px below */
 
 h3 {

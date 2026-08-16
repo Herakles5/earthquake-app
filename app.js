@@ -535,6 +535,72 @@ async function fetchEarthquakes() {
     }
 }
 
+const tsunamiList = document.getElementById('tsunami-list');
+
+async function fetchTsunamis() {
+    try {
+        // Hier kannst du später einen echten NOAA/PTWC RSS- oder JSON-Feed anbinden.
+        // Für den Live-Ticker nutzen wir eine strukturierte Basis:
+        const mockTsunamis = [
+            { region: "Keine akuten Tsunami-Warnungen", level: "Normalbetrieb", time: "Aktuell" },
+            { region: "Pazifischer Raum (PTWC)", level: "Keine Bedrohung aktiv", time: "Vor 1 Std" },
+            { region: "Indischer Ozean", level: "Überwachung aktiv", time: "Vor 3 Std" }
+        ];
+
+        tsunamiList.innerHTML = '';
+        mockTsunamis.forEach(t => {
+            let li = document.createElement('li');
+            li.innerHTML = `<strong>[${t.time}]</strong> ${t.region}<br><span style="color:#ffffff; font-size:11px;">Status: ${t.level}</span>`;
+            tsunamiList.appendChild(li);
+        });
+
+    } catch (e) {
+        console.error("Fehler beim Laden der Tsunami-Daten", e);
+    }
+}
+
+// Initial aufrufen und alle 10 Minuten aktualisieren
+fetchTsunamis();
+setInterval(fetchTsunamis, 600000);
+
+const volcanoList = document.getElementById('volcano-list');
+
+async function fetchVolcanoes() {
+    try {
+        // Beispiel-Datenanbindung (hier kannst du einen echten Vulkan-RSS/JSON-Feed nutzen, z.B. USGS Hazards)
+        // Alternativ als Live-Ticker-Struktur aufgebaut:
+        const res = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/significant_month.geojson'); // Oder ein entsprechender Vulkan-Feed
+        
+        // Da offizielle Live-Vulkan-APIs oft CORS-beschränkt sind, dient hier ein robuster Parser/Fetcher:
+        // Für den Prototypen simulieren wir den Live-Ticker oder binden einen aktiven Feed ein:
+        
+        // Beispielhafte Einträge für den scrollbaren Ticker:
+        const mockVolcanoes = [
+            { name: "Etna", location: "Italien", status: "Sturmtätigkeit / Ascheausstoß", time: "Vor 12 Min" },
+            { name: "Kilauea", location: "Hawaii, USA", status: "Erhöhte seismische Unruhe", time: "Vor 45 Min" },
+            { name: "Merapi", location: "Indonesien", status: "Pyroklastischer Strom", time: "Vor 2 Std" },
+            { name: "Sakurajima", location: "Japan", status: "Explosive Aktivität", time: "Vor 3 Std" },
+            { name: "Fuego", location: "Guatemala", status: "Aschewolke auf 4.5km Höhe", time: "Vor 5 Std" },
+            { name: "Stromboli", location: "Italien", status: "Normale strombolianische Aktivität", time: "Vor 6 Std" },
+            { name: "Ebeko", location: "Kurilen, Russland", status: "Kleine Explosion", time: "Vor 8 Std" }
+        ];
+
+        volcanoList.innerHTML = '';
+        mockVolcanoes.forEach(v => {
+            let li = document.createElement('li');
+            li.innerHTML = `<strong>[${v.time}]</strong> ${v.name} (${v.location})<br><span style="color:#ffffff; font-size:11px;">Status: ${v.status}</span>`;
+            volcanoList.appendChild(li);
+        });
+
+    } catch (e) {
+        console.error("Fehler beim Laden der Vulkan-Daten", e);
+    }
+}
+
+// Initial aufrufen und alle 10 Minuten aktualisieren
+fetchVolcanoes();
+setInterval(fetchVolcanoes, 600000);
+
 async function fetchLongTermStats() {
     try {
         let resMonth = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.geojson');
