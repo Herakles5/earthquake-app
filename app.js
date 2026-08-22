@@ -475,8 +475,7 @@ async function fetchEarthquakes() {
                 let bestRegion = earthquakes[0].place;
                 let actualLimit = Math.min(limit, earthquakes.length);
                 for (let i = 0; i < actualLimit; i++) {
-                    let r = earthquak
-                    es[i].place;
+                    let r = earthquakes[i].place;
                     let cleanR = r;
                     let ofIndex = r.indexOf(' of ');
                     if (ofIndex > -1) {
@@ -648,7 +647,6 @@ async function fetchLongTermStats() {
             
             let bestRegion = eqArray[0].place || "Unknown Region";
             let maxCount = 0;
-            let bestRegion = eqArray[0].place;
             
             let mag5Eqs = eqArray.filter(eq => eq.mag >= 5.0);
             let mag7Eqs = eqArray.filter(eq => eq.mag >= 7.0);
