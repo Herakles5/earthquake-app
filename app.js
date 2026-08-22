@@ -475,7 +475,8 @@ async function fetchEarthquakes() {
                 let bestRegion = earthquakes[0].place;
                 let actualLimit = Math.min(limit, earthquakes.length);
                 for (let i = 0; i < actualLimit; i++) {
-                    let r = earthquakes[i].place;
+                    let r = earthquak
+                    es[i].place;
                     let cleanR = r;
                     let ofIndex = r.indexOf(' of ');
                     if (ofIndex > -1) {
@@ -567,73 +568,41 @@ function renderVolcanoes() {
 }
 
 // Tsunamis rendern
-function renderTsunamis() {
-    tsunamiList.innerHTML = '';
-    if (tsunamiData.length === 0) {
-        tsunamiList.innerHTML = '<li>No active alerts</li>';
+// Vulkane als Live-Ticker rendern
+function renderVolcanoes() {
+    if (volcanoData.length === 0) {
+        volcanoList.innerHTML = '<li>No recent significant events</li>';
         return;
     }
-    tsunamiData.forEach(t => {
-        let li = document.createElement('li');
-        let timeStr = getRelativeTime(t.timestamp);
-        li.innerHTML = `<strong>[${timeStr}]</strong> ${t.region}<br><span style="color:#ffffff; font-size:11px;">Status: ${t.level}</span>`;
-        tsunamiList.appendChild(li);
-    });
+    
+    // Nur die neuesten 10 Events nehmen
+    const last10 = volcanoData.slice(0, 10);
+    
+    // Einen durchgehenden Text-String für den Ticker bauen
+    let tickerContent = last10.map(v => 
+        `⚠️ [${getRelativeTime(v.timestamp)}] ${v.name} (${v.status})`
+    ).join(' &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; ');
+
+    // Marquee direction="right" lässt den Text wie gewünscht von links nach rechts durchlaufen
+    volcanoList.innerHTML = `<marquee direction="right" scrollamount="5" style="color:#ff8800; font-weight:bold; padding: 5px 0;">${tickerContent}</marquee>`;
 }
 
-// Echte Live-Daten von USGS laden und aufteilen
-async function fetchLiveTickers() {
-    try {
-        // Wir nutzen jetzt den Feed für Stärke 4.5+ der letzten 7 Tage,
-        // damit der Ticker immer gut mit signifikanten Events gefüllt ist!
-        const response = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson');
-        const data = await response.json();
-        
-        if (data && data.features) {
-            volcanoData = [];
-            tsunamiData = [];
-
-            data.features.forEach(quake => {
-                const props = quake.properties;
-                const place = props.place;
-                const mag = props.mag;
-                const time = props.time;
-                const tsunamiFlag = props.tsunami; // 1 wenn Tsunami-Warnung
-
-                // Signifikante seismische Events in den Vulkan-/Aktivitäten-Ticker schreiben
-                volcanoData.push({
-                    name: place,
-                    status: `Seismic Unrest - Mag ${mag.toFixed(1)}`,
-                    timestamp: time
-                });
-
-                // Wenn die USGS ein Tsunami-Flag setzt, in den Tsunami-Ticker schreiben
-                if (tsunamiFlag === 1) {
-                    tsunamiData.push({
-                        region: place,
-                        level: `Tsunami Warning (Mag ${mag.toFixed(1)})`,
-                        timestamp: time
-                    });
-                }
-            });
-
-            // Fallback für Tsunami-Ticker, falls weltweit keine Warnung vorliegt
-            if (tsunamiData.length === 0) {
-                tsunamiData.push({
-                    region: "Global Tsunami Monitoring",
-                    level: "No active threats reported",
-                    timestamp: Date.now()
-                });
-            }
-        }
-    } catch (e) {
-        console.error("Error fetching ticker data:", e);
+// Tsunamis als Live-Ticker rendern
+function renderTsunamis() {
+    if (tsunamiData.length === 0) {
+        tsunamiList.innerHTML = '<marquee direction="right" scrollamount="3" style="color:#00ffcc;">[Global Tsunami Monitoring] Status: No active threats reported</marquee>';
+        return;
     }
+    
+    // Nur die neuesten 10 Tsunamis nehmen
+    const last10 = tsunamiData.slice(0, 10);
+    
+    let tickerContent = last10.map(t => 
+        `🌊 [${getRelativeTime(t.timestamp)}] ${t.region} - Status: ${t.level}`
+    ).join(' &nbsp;&nbsp;&nbsp;|&nbsp;&nbsp;&nbsp; ');
 
-    renderVolcanoes();
-    renderTsunamis();
+    volcanoList.innerHTML = `<marquee direction="right" scrollamount="5" style="color:#ff3333; font-weight:bold; padding: 5px 0;">${tickerContent}</marquee>`;
 }
-
 // Initialer Aufruf
 fetchLiveTickers();
 
@@ -677,7 +646,7 @@ async function fetchLongTermStats() {
             let timeSpan = eqArray[0].time - eqArray[eqArray.length - 1].time;
             let avgMs = timeSpan / (count - 1);
             
-            let regionCounts = {};
+            let bestRegion = eqArray[0].place || "Unknown Region";
             let maxCount = 0;
             let bestRegion = eqArray[0].place;
             
@@ -701,10 +670,12 @@ async function fetchLongTermStats() {
             }
             
             eqArray.forEach(eq => {
-                let cleanR = eq.place;
+                // FIX: Fallback, falls die USGS API "null" als Ort sendet
+                let cleanR = eq.place || "Unknown Region";
                 let ofIndex = cleanR.indexOf(' of ');
                 if (ofIndex > -1) cleanR = cleanR.substring(ofIndex + 4);
                 cleanR = cleanR.trim().toUpperCase();
+                
                 regionCounts[cleanR] = (regionCounts[cleanR] || 0) + 1;
                 if (regionCounts[cleanR] > maxCount) {
                     maxCount = regionCounts[cleanR];
