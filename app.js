@@ -945,26 +945,20 @@ function draw() {
     ctx.strokeStyle = "rgba(120, 220, 120, 0.8)"; // Brighter green and less transparent
     ctx.lineWidth = 1.5; // Slightly thicker
 
-    // Feintuning auf 25 Grad
-    const rotationDegrees = 60; 
-    const theta = rotationDegrees * Math.PI / 180.0;
-    const cosT = Math.cos(theta);
-    const sinT = Math.sin(theta);
-
+    // Coastlines now use [lon1, lat1, lon2, lat2] format - same projection as earthquakes
     for (let i = 0; i < coast_lines.length; i++) {
         let l = coast_lines[i];
 
-        // 2D-Rotation gegen den Uhrzeigersinn für den Canvas (+Y ist unten)
-        let rx1 = l[0] * cosT + l[1] * sinT;
-        let ry1 = -l[0] * sinT + l[1] * cosT;
+        // Same azimuthal equidistant projection as earthquakes and tectonic plates
+        let r1 = ((90.0 - l[1]) / 180.0) * 723.0;
+        let a1 = l[0] * Math.PI / 180.0;
+        let px1 = mapCx + (r1 * Math.sin(a1)) * scale;
+        let py1 = mapCy + (r1 * Math.cos(a1)) * scale;
         
-        let rx2 = l[2] * cosT + l[3] * sinT;
-        let ry2 = -l[2] * sinT + l[3] * cosT;
-
-        let px1 = mapCx + rx1 * scale;
-        let py1 = mapCy + ry1 * scale;
-        let px2 = mapCx + rx2 * scale;
-        let py2 = mapCy + ry2 * scale;
+        let r2 = ((90.0 - l[3]) / 180.0) * 723.0;
+        let a2 = l[2] * Math.PI / 180.0;
+        let px2 = mapCx + (r2 * Math.sin(a2)) * scale;
+        let py2 = mapCy + (r2 * Math.cos(a2)) * scale;
         
         if ((px1 > 0 && px1 < width && py1 > 0 && py1 < height) || 
             (px2 > 0 && px2 < width && py2 > 0 && py2 < height)) {
