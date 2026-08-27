@@ -13,25 +13,18 @@
 </head>
 <body>
     <div id="ui-layer">
-        <div id="header">
+        <div id="header" style="margin-top: 35px;">
             <h1>LIVE EARTHQUAKES</h1>
             <div id="status">Fetching data...</div>
         </div>
 
-   <div id="volcano-container">
-       <h3>Volcano Activity</h3>
-       <ul id="volcano-list">
-           <!-- Wird dynamisch gefüllt -->
-       </ul>
-   </div>
-
-   <div id="tsunami-container">
-       <h3>Tsunami Alerts</h3>
-       <ul id="tsunami-list">
-           <!-- Wird dynamisch gefüllt -->
-       </ul>
-   </div>
-        
+    <div id="ticker-container">
+        <div id="ticker-scroll">
+            <span id="ticker-content">
+                <span class="ticker-item">Loading Tsunami & Volcano Data...</span>
+            </span>
+        </div>
+    </div>
         <div id="controls">
             <button id="btn-sound" style="background-color: #ff3333; font-size: 12px;">Sound: OFF</button>
             <button id="btn-zoomin">+</button>
@@ -178,6 +171,7 @@
         </div>
     </div>
 </div>
+</div>
 
     <canvas id="mapCanvas"></canvas>
 
@@ -186,7 +180,26 @@
     <script src="app.js"></script>
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js');
+            navigator.serviceWorker.register('sw.js').then(reg => {
+                reg.addEventListener('updatefound', () => {
+                    const newWorker = reg.installing;
+                    newWorker.addEventListener('statechange', () => {
+                        if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            // A new service worker is available and installed
+                            console.log('New version available! Auto-refreshing...');
+                        }
+                    });
+                });
+            });
+
+            // Reload the page when the new service worker takes control
+            let refreshing = false;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (!refreshing) {
+                    refreshing = true;
+                    window.location.reload();
+                }
+            });
         }
     </script>
 </body>

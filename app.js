@@ -535,8 +535,8 @@ async function fetchEarthquakes() {
     }
 }
 
-const tsunamiList = document.getElementById('tsunami-list');
-const volcanoList = document.getElementById('volcano-list');
+const tickerContent = document.getElementById('ticker-content');
+const tickerScroll = document.getElementById('ticker-scroll');
 
 let volcanoData = [];
 let tsunamiData = [];
@@ -551,34 +551,35 @@ function getRelativeTime(timestamp) {
     return `${diffHours}h ago`;
 }
 
-// Vulkane rendern
-function renderVolcanoes() {
-    volcanoList.innerHTML = '';
-    if (volcanoData.length === 0) {
-        volcanoList.innerHTML = '<li>No recent significant events</li>';
-        return;
-    }
-    volcanoData.forEach(v => {
-        let li = document.createElement('li');
-        let timeStr = getRelativeTime(v.timestamp);
-        li.innerHTML = `<strong>[${timeStr}]</strong> ${v.name}<br><span style="color:#ffffff; font-size:11px;">${v.status}</span>`;
-        volcanoList.appendChild(li);
-    });
-}
-
-// Tsunamis rendern
-function renderTsunamis() {
-    tsunamiList.innerHTML = '';
-    if (tsunamiData.length === 0) {
-        tsunamiList.innerHTML = '<li>No active alerts</li>';
-        return;
-    }
+// Ticker rendern
+function renderTicker() {
+    if (!tickerContent) return;
+    
+    let html = '';
+    
     tsunamiData.forEach(t => {
-        let li = document.createElement('li');
         let timeStr = getRelativeTime(t.timestamp);
-        li.innerHTML = `<strong>[${timeStr}]</strong> ${t.region}<br><span style="color:#ffffff; font-size:11px;">Status: ${t.level}</span>`;
-        tsunamiList.appendChild(li);
+        html += `<span class="ticker-item ticker-tsunami">🌊 TSUNAMI: [${timeStr}] ${t.region} - ${t.level}</span>`;
     });
+    
+    volcanoData.forEach(v => {
+        let timeStr = getRelativeTime(v.timestamp);
+        html += `<span class="ticker-item ticker-volcano">🌋 VOLCANO: [${timeStr}] ${v.name} - ${v.status}</span>`;
+    });
+    
+    tickerContent.innerHTML = html;
+    
+    // Setze die Dauer basierend auf der Anzahl der Items (ca. 8 Sekunden pro Item)
+    const totalItems = tsunamiData.length + volcanoData.length;
+    const duration = Math.max(60, totalItems * 8); // Mindestens 60s
+    
+    // Animation zurücksetzen, damit es neu von rechts reinscrollt
+    if (tickerScroll) {
+        tickerScroll.style.animationDuration = `${duration}s`;
+        tickerScroll.style.animationName = 'none';
+        tickerScroll.offsetHeight; /* trigger reflow */
+        tickerScroll.style.animationName = 'ticker'; 
+    }
 }
 
 // Echte Live-Daten von USGS laden und aufteilen
@@ -630,8 +631,7 @@ async function fetchLiveTickers() {
         console.error("Error fetching ticker data:", e);
     }
 
-    renderVolcanoes();
-    renderTsunamis();
+    renderTicker();
 }
 
 // Initialer Aufruf
@@ -639,8 +639,7 @@ fetchLiveTickers();
 
 // Jede Minute Timer (relative Zeiten) aktualisieren
 setInterval(() => {
-    renderVolcanoes();
-    renderTsunamis();
+    renderTicker();
 }, 60000);
 
 // Alle 5 Minuten neue Daten von der API holen
