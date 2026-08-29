@@ -1,5 +1,9 @@
 ***EARTHQUAKE-MONITOR***
 
+<a href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=boxingdual@gmail.com&currency_code=EUR&item_name=Coffee+Support+Earthquake+Tracker" target="_blank">
+  <img src="https://img.shields.io/badge/☕_Donate-PayPal-0070ba?style=for-the-badge&logo=paypal&logoColor=white" alt="Donate Coffee">
+</a>
+
 live stream web site - ***https://herakles5.github.io/earthquake-app/*** -
 
 
