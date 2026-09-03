@@ -23,5 +23,6 @@ and only from +3 magnitude***
 
 <img width="1920" height="1080" alt="Screenshot_2026-08-16_12-41-17" src="https://github.com/user-attachments/assets/124c2c31-5617-4711-a487-ce7475c8c4e8" />
 
-<img width="1920" height="1080" alt="Screenshot_2026-08-27_14-59-05" src="https://github.com/user-attachments/assets/6b3b85bf-107f-43d3-afcd-d734bab74454" />
+<img width="1920" height="1080" alt="Screenshot_2026-09-03_16-18-43" src="https://github.com/user-attachments/assets/bf009cb2-4c61-4993-b947-9dd0184ccd6a" />
+
 
