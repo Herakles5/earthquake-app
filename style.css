@@ -633,3 +633,136 @@ h3 {
         font-size: 14px;
     }
 }
+
+/* ========== Earthquake Detail Popup ========== */
+.eq-popup {
+    position: absolute;
+    z-index: 100;
+    min-width: 280px;
+    max-width: 340px;
+    background: rgba(15, 15, 25, 0.95);
+    border: 1px solid rgba(255, 136, 0, 0.5);
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 20px rgba(255, 136, 0, 0.15);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    pointer-events: auto;
+    transform: translate(-50%, -100%) translateY(-18px);
+    animation: popupFadeIn 0.2s ease-out;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.eq-popup.hidden {
+    display: none;
+}
+
+@keyframes popupFadeIn {
+    from { opacity: 0; transform: translate(-50%, -100%) translateY(-10px) scale(0.95); }
+    to { opacity: 1; transform: translate(-50%, -100%) translateY(-18px) scale(1); }
+}
+
+.eq-popup-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px 6px 12px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.eq-popup-mag {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-shadow: 0 0 10px currentColor;
+}
+
+.eq-popup-close {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: #aaa;
+    font-size: 20px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    line-height: 1;
+}
+
+.eq-popup-close:hover {
+    background: rgba(255, 50, 50, 0.3);
+    color: #ff3333;
+}
+
+.eq-popup-body {
+    padding: 8px 12px 10px 12px;
+}
+
+.eq-popup-place {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+    margin-bottom: 8px;
+    line-height: 1.3;
+}
+
+.eq-popup-stats {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.eq-popup-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    font-size: 11.5px;
+    line-height: 1.6;
+}
+
+.eq-popup-label {
+    color: #888;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.eq-popup-row span:last-child {
+    color: #ddd;
+    text-align: right;
+    font-weight: 500;
+    word-break: break-word;
+}
+
+.eq-popup-arrow {
+    position: absolute;
+    bottom: -8px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-top: 8px solid rgba(15, 15, 25, 0.95);
+}
+
+/* Magnitude color classes applied via JS */
+.eq-popup.mag-low { border-color: rgba(200, 200, 0, 0.6); box-shadow: 0 8px 32px rgba(0,0,0,0.7), 0 0 15px rgba(200,200,0,0.15); }
+.eq-popup.mag-mid { border-color: rgba(255, 136, 0, 0.6); box-shadow: 0 8px 32px rgba(0,0,0,0.7), 0 0 15px rgba(255,136,0,0.2); }
+.eq-popup.mag-high { border-color: rgba(255, 50, 50, 0.7); box-shadow: 0 8px 32px rgba(0,0,0,0.7), 0 0 20px rgba(255,50,50,0.25); }
+
+@media (max-width: 768px) {
+    .eq-popup {
+        min-width: 240px;
+        max-width: 290px;
+    }
+    .eq-popup-mag {
+        font-size: 18px;
+    }
+    .eq-popup-row {
+        font-size: 11px;
+    }
+}

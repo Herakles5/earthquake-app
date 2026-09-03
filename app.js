@@ -2,6 +2,7 @@ const canvas = document.getElementById('mapCanvas');
 const ctx = canvas.getContext('2d');
 const eqList = document.getElementById('eq-list');
 const statusDiv = document.getElementById('status');
+const eqPopup = document.getElementById('eq-popup');
 
 let width, height;
 let zoom = 1.0;
@@ -9,6 +10,8 @@ let offsetX = 0;
 let offsetY = 0;
 let isDragging = false;
 let startX, startY;
+let mouseDownX = 0, mouseDownY = 0;
+let selectedEq = null;
 
 let earthquakes = [];
 let pulseTime = 0;
@@ -972,18 +975,172 @@ function draw() {
 }
 draw();
 
+// ========== Earthquake Popup Logic ==========
+function getEqCategory(mag) {
+    if (mag >= 8.0) return '🔴 Great (Catastrophic)';
+    if (mag >= 7.0) return '🔴 Major (Severe)';
+    if (mag >= 6.0) return '🟠 Strong';
+    if (mag >= 5.0) return '🟠 Moderate';
+    if (mag >= 4.0) return '🟡 Light';
+    return '🟡 Minor';
+}
+
+function getEqEnergy(mag) {
+    // Energy in Joules: 10^(1.5*mag + 4.8)
+    let joules = Math.pow(10, 1.5 * mag + 4.8);
+    let tntKg = joules / 4.184e6;
+    if (tntKg >= 1e9) return (tntKg / 1e9).toFixed(1) + ' Megatons';
+    if (tntKg >= 1e6) return (tntKg / 1e6).toFixed(1) + ' Kilotons';
+    if (tntKg >= 1e3) return (tntKg / 1e3).toFixed(1) + ' Tons';
+    return tntKg.toFixed(0) + ' kg';
+}
+
+function formatAge(ms) {
+    let secs = Math.floor(ms / 1000);
+    let mins = Math.floor(secs / 60);
+    let hours = Math.floor(mins / 60);
+    if (hours > 0) return `${hours}h ${mins % 60}m ago`;
+    if (mins > 0) return `${mins}m ${secs % 60}s ago`;
+    return `${secs}s ago`;
+}
+
+function showEqPopup(eq, screenX, screenY) {
+    selectedEq = eq;
+    
+    // Magnitude color
+    let magColor, magClass;
+    if (eq.mag >= 5.0) { magColor = '#ff3333'; magClass = 'mag-high'; }
+    else if (eq.mag >= 3.0) { magColor = '#ff8800'; magClass = 'mag-mid'; }
+    else { magColor = '#c8c800'; magClass = 'mag-low'; }
+    
+    let magEl = document.getElementById('eq-popup-mag');
+    magEl.textContent = `M ${eq.mag.toFixed(1)}`;
+    magEl.style.color = magColor;
+    
+    eqPopup.className = 'eq-popup ' + magClass;
+    
+    document.getElementById('eq-popup-place').textContent = eq.place || 'Unknown Location';
+    
+    let latDir = eq.lat >= 0 ? 'N' : 'S';
+    let lonDir = eq.lon >= 0 ? 'E' : 'W';
+    document.getElementById('eq-popup-coords').textContent = 
+        `${Math.abs(eq.lat).toFixed(4)}°${latDir}, ${Math.abs(eq.lon).toFixed(4)}°${lonDir}`;
+    
+    let depthText = eq.depth.toFixed(1) + ' km';
+    if (eq.depth >= 150) depthText += ' ⚠️ DEEP';
+    else if (eq.depth >= 70) depthText += ' (Intermediate)';
+    else depthText += ' (Shallow)';
+    document.getElementById('eq-popup-depth').textContent = depthText;
+    
+    let d = new Date(eq.time);
+    document.getElementById('eq-popup-time').textContent = 
+        d.toISOString().replace('T', ' ').substring(0, 19) + ' UTC';
+    document.getElementById('eq-popup-time-local').textContent = 
+        d.toLocaleString();
+    
+    document.getElementById('eq-popup-age').textContent = formatAge(Date.now() - eq.time);
+    document.getElementById('eq-popup-category').textContent = getEqCategory(eq.mag);
+    document.getElementById('eq-popup-energy').textContent = getEqEnergy(eq.mag);
+    
+    // Position popup above the clicked point, keep within viewport
+    let popupW = 310;
+    let popupH = 260;
+    let px = Math.max(popupW / 2 + 5, Math.min(screenX, window.innerWidth - popupW / 2 - 5));
+    let py = screenY;
+    
+    // If too close to top, show below instead
+    if (py < popupH + 30) {
+        eqPopup.style.transform = 'translate(-50%, 18px)';
+        eqPopup.querySelector('.eq-popup-arrow').style.cssText = 
+            'position:absolute;top:-8px;bottom:auto;left:50%;transform:translateX(-50%);' +
+            'width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;' +
+            'border-bottom:8px solid rgba(15,15,25,0.95);border-top:none;';
+    } else {
+        eqPopup.style.transform = 'translate(-50%, -100%) translateY(-18px)';
+        eqPopup.querySelector('.eq-popup-arrow').style.cssText = 
+            'position:absolute;bottom:-8px;left:50%;transform:translateX(-50%);' +
+            'width:0;height:0;border-left:8px solid transparent;border-right:8px solid transparent;' +
+            'border-top:8px solid rgba(15,15,25,0.95);';
+    }
+    
+    eqPopup.style.left = px + 'px';
+    eqPopup.style.top = py + 'px';
+    eqPopup.classList.remove('hidden');
+}
+
+function hideEqPopup() {
+    eqPopup.classList.add('hidden');
+    selectedEq = null;
+}
+
+function findEqAtPoint(clientX, clientY) {
+    let rect = canvas.getBoundingClientRect();
+    let clickX = (clientX - rect.left) * (canvas.width / rect.width);
+    let clickY = (clientY - rect.top) * (canvas.height / rect.height);
+    
+    let mapCx = width / 2 + offsetX;
+    let mapCy = height / 2 + offsetY;
+    let scale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
+    
+    let closest = null;
+    let closestDist = Infinity;
+    
+    for (let i = 0; i < earthquakes.length; i++) {
+        let eq = earthquakes[i];
+        let r = ((90.0 - eq.lat) / 180.0) * 723.0;
+        let angle = eq.lon * Math.PI / 180.0;
+        let px = mapCx + (r * Math.sin(angle)) * scale;
+        let py = mapCy + (r * Math.cos(angle)) * scale;
+        
+        let dx = clickX - px;
+        let dy = clickY - py;
+        let dist = Math.sqrt(dx * dx + dy * dy);
+        
+        // Hit area: at least 15px or the dot size, whichever is bigger
+        let hitRadius = Math.max(15, eq.mag * 2 * zoom);
+        if (dist < hitRadius && dist < closestDist) {
+            closest = eq;
+            closestDist = dist;
+        }
+    }
+    return closest;
+}
+
 // Controls
 document.getElementById('btn-zoomin').addEventListener('click', () => { zoom *= 1.3; });
 document.getElementById('btn-zoomout').addEventListener('click', () => { zoom /= 1.3; if(zoom < 0.2) zoom = 0.2; });
-document.getElementById('btn-reset').addEventListener('click', () => { zoom = 1.0; offsetX = 0; offsetY = 0; });
+document.getElementById('btn-reset').addEventListener('click', () => { zoom = 1.0; offsetX = 0; offsetY = 0; hideEqPopup(); });
 
-// Touch & Drag
+// Popup close button
+document.getElementById('eq-popup-close').addEventListener('click', (e) => {
+    e.stopPropagation();
+    hideEqPopup();
+});
+
+// Touch & Drag (with click detection)
 canvas.addEventListener('mousedown', e => {
     isDragging = true;
     startX = e.clientX - offsetX;
     startY = e.clientY - offsetY;
+    mouseDownX = e.clientX;
+    mouseDownY = e.clientY;
 });
-window.addEventListener('mouseup', () => isDragging = false);
+window.addEventListener('mouseup', (e) => {
+    let dx = e.clientX - mouseDownX;
+    let dy = e.clientY - mouseDownY;
+    let dragDist = Math.sqrt(dx * dx + dy * dy);
+    
+    // Only treat as click if mouse didn't move much (not a drag)
+    if (dragDist < 5 && isDragging) {
+        let eq = findEqAtPoint(e.clientX, e.clientY);
+        if (eq) {
+            showEqPopup(eq, e.clientX, e.clientY);
+        } else {
+            hideEqPopup();
+        }
+    }
+    isDragging = false;
+});
 window.addEventListener('mousemove', e => {
     if (isDragging) {
         offsetX = e.clientX - startX;
@@ -992,11 +1149,14 @@ window.addEventListener('mousemove', e => {
 });
 
 let lastTouchDistance = 0;
+let touchStartX = 0, touchStartY = 0;
 canvas.addEventListener('touchstart', e => {
     if (e.touches.length === 1) {
         isDragging = true;
         startX = e.touches[0].clientX - offsetX;
         startY = e.touches[0].clientY - offsetY;
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
     } else if (e.touches.length === 2) {
         let dx = e.touches[0].clientX - e.touches[1].clientX;
         let dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -1005,7 +1165,23 @@ canvas.addEventListener('touchstart', e => {
 });
 window.addEventListener('touchend', e => {
     if (e.touches.length < 2) lastTouchDistance = 0;
-    if (e.touches.length === 0) isDragging = false;
+    if (e.touches.length === 0) {
+        // Check for tap (no drag)
+        if (isDragging) {
+            let ct = e.changedTouches[0];
+            let dx = ct.clientX - touchStartX;
+            let dy = ct.clientY - touchStartY;
+            if (Math.sqrt(dx*dx + dy*dy) < 10) {
+                let eq = findEqAtPoint(ct.clientX, ct.clientY);
+                if (eq) {
+                    showEqPopup(eq, ct.clientX, ct.clientY);
+                } else {
+                    hideEqPopup();
+                }
+            }
+        }
+        isDragging = false;
+    }
 });
 window.addEventListener('touchmove', e => {
     if (e.touches.length === 1 && isDragging) {

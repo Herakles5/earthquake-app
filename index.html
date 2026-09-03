@@ -181,6 +181,27 @@
 </div>
 </div>
 
+    <!-- Earthquake Detail Popup -->
+    <div id="eq-popup" class="eq-popup hidden">
+        <div class="eq-popup-header">
+            <span id="eq-popup-mag" class="eq-popup-mag"></span>
+            <button id="eq-popup-close" class="eq-popup-close">×</button>
+        </div>
+        <div class="eq-popup-body">
+            <div class="eq-popup-place" id="eq-popup-place"></div>
+            <div class="eq-popup-stats">
+                <div class="eq-popup-row"><span class="eq-popup-label">📍 Coordinates:</span><span id="eq-popup-coords"></span></div>
+                <div class="eq-popup-row"><span class="eq-popup-label">📏 Depth:</span><span id="eq-popup-depth"></span></div>
+                <div class="eq-popup-row"><span class="eq-popup-label">🕐 Time (UTC):</span><span id="eq-popup-time"></span></div>
+                <div class="eq-popup-row"><span class="eq-popup-label">🕐 Time (Local):</span><span id="eq-popup-time-local"></span></div>
+                <div class="eq-popup-row"><span class="eq-popup-label">⏱️ Age:</span><span id="eq-popup-age"></span></div>
+                <div class="eq-popup-row"><span class="eq-popup-label">🏷️ Category:</span><span id="eq-popup-category"></span></div>
+                <div class="eq-popup-row"><span class="eq-popup-label">📊 Energy (TNT):</span><span id="eq-popup-energy"></span></div>
+            </div>
+        </div>
+        <div class="eq-popup-arrow"></div>
+    </div>
+
     <canvas id="mapCanvas"></canvas>
 
     <script src="coastlines.js"></script>
