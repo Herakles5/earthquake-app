@@ -175,12 +175,20 @@ h3 {
     line-height: 1.3;
     border-bottom: 1px solid rgba(255,255,255,0.05);
     padding-bottom: 5px;
+    cursor: pointer;
+    transition: background 0.1s, padding-left 0.1s;
+    padding: 3px 5px;
+    border-radius: 4px;
+}
+
+#eq-list li:hover {
+    background: rgba(255, 255, 255, 0.1);
+    padding-left: 10px;
 }
 
 #eq-list li:last-child {
     border-bottom: none;
     margin-bottom: 0;
-    padding-bottom: 0;
 }
 
 #prediction-bar {
@@ -256,10 +264,24 @@ h3 {
     text-transform: uppercase;
 }
 
-#prediction-timer, #prediction-timer-24h, #prediction-region-5, #prediction-region-24h {
+#prediction-timer, #prediction-timer-24h, #prediction-region-5, #prediction-region-24h,
+#prediction-timer-m4, #prediction-timer-24h-m4, #prediction-region-5-m4, #prediction-region-24h-m4 {
     font-weight: bold;
     font-size: 18px;
     text-align: right;
+}
+
+.clickable-stat {
+    cursor: help;
+    text-decoration: underline dotted rgba(255,255,255,0.3);
+    transition: opacity 0.2s, transform 0.1s;
+    display: inline-block;
+}
+
+.clickable-stat:hover {
+    opacity: 0.8;
+    transform: scale(1.05);
+    text-decoration: underline dotted rgba(255,255,255,0.8);
 }
 
 #prediction-timer {
@@ -634,6 +656,92 @@ h3 {
     }
 }
 
+/* ========== Gaia Diagram ========== */
+#gaia-diagram-container {
+    position: absolute;
+    bottom: 90px; /* Above the prediction bar */
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 70px;
+    background: rgba(15, 15, 20, 0.85);
+    border: 1px solid rgba(255, 51, 255, 0.4);
+    border-radius: 12px;
+    backdrop-filter: blur(5px);
+    pointer-events: auto;
+    box-shadow: 0 4px 15px rgba(255, 51, 255, 0.15);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    padding: 5px 15px;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+#gaia-diagram-container:hover {
+    transform: translateX(-50%) scale(1.02);
+    box-shadow: 0 6px 20px rgba(255, 51, 255, 0.3);
+}
+
+#gaia-diagram-title {
+    color: #ff33ff;
+    font-size: 11px;
+    font-weight: bold;
+    text-align: center;
+    letter-spacing: 2px;
+    margin-bottom: 3px;
+    text-shadow: 0 0 5px rgba(255, 51, 255, 0.5);
+}
+
+#gaiaCanvas {
+    width: 100%;
+    height: 40px;
+    position: relative; /* Not absolute so it flows in container */
+}
+
+/* Custom styling for the Gaia popup */
+#gaia-popup {
+    border-color: rgba(255, 51, 255, 0.6);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8), 0 0 20px rgba(255, 51, 255, 0.2);
+    width: 340px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    position: fixed; /* Center on screen instead of relative to mouse */
+    opacity: 0.85;
+    transition: opacity 0.2s ease;
+}
+
+#gaia-popup.hidden {
+    display: none;
+}
+
+/* Modify animation to center zoom */
+#gaia-popup {
+    animation: centerZoom 0.2s ease-out;
+}
+@keyframes centerZoom {
+    from { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
+    to { opacity: 0.85; transform: translate(-50%, -50%) scale(1); }
+}
+
+.gaia-pred-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 12px;
+}
+
+.gaia-pred-label {
+    font-weight: bold;
+}
+.gaia-pred-val {
+    font-weight: bold;
+    text-shadow: 0 0 5px currentColor;
+}
+
 /* ========== Earthquake Detail Popup ========== */
 .eq-popup {
     position: absolute;
@@ -650,6 +758,8 @@ h3 {
     transform: translate(-50%, -100%) translateY(-18px);
     animation: popupFadeIn 0.2s ease-out;
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    opacity: 0.85;
+    transition: opacity 0.2s ease, transform 0.2s;
 }
 
 .eq-popup.hidden {
@@ -658,7 +768,7 @@ h3 {
 
 @keyframes popupFadeIn {
     from { opacity: 0; transform: translate(-50%, -100%) translateY(-10px) scale(0.95); }
-    to { opacity: 1; transform: translate(-50%, -100%) translateY(-18px) scale(1); }
+    to { opacity: 0.85; transform: translate(-50%, -100%) translateY(-18px) scale(1); }
 }
 
 .eq-popup-header {
@@ -754,7 +864,32 @@ h3 {
 .eq-popup.mag-mid { border-color: rgba(255, 136, 0, 0.6); box-shadow: 0 8px 32px rgba(0,0,0,0.7), 0 0 15px rgba(255,136,0,0.2); }
 .eq-popup.mag-high { border-color: rgba(255, 50, 50, 0.7); box-shadow: 0 8px 32px rgba(0,0,0,0.7), 0 0 20px rgba(255,50,50,0.25); }
 
+/* ========== Popup Z-Index and Highlight Rules ========== */
+.popup-to-front {
+    z-index: 9999 !important;
+    opacity: 1 !important;
+    box-shadow: 0 12px 40px rgba(0, 0, 0, 0.9), 0 0 20px rgba(255, 255, 255, 0.1) !important;
+}
+
 @media (max-width: 768px) {
+    #gaia-diagram-container {
+        left: 10px;
+        right: 10px;
+        width: auto;
+        transform: none; /* Disables the tricky centering via translate */
+        bottom: 120px; /* Above the stacked prediction bar */
+        height: 60px;
+        padding: 3px 10px;
+    }
+    
+    #gaia-diagram-title {
+        font-size: 9px;
+    }
+    
+    #gaiaCanvas {
+        height: 35px;
+    }
+
     .eq-popup {
         min-width: 240px;
         max-width: 290px;
@@ -765,4 +900,12 @@ h3 {
     .eq-popup-row {
         font-size: 11px;
     }
+}
+#gaia-diagram-container {
+    bottom: 220px; /* Above the stacked prediction bar */
+    display: block !important;
+    z-index: 9999 !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    background: rgba(0, 0, 0, 0.8) !important; /* Macht den Hintergrund zur Kontrolle sichtbar */
 }

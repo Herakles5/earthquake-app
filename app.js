@@ -35,6 +35,27 @@ let predictedNextTime30dMag7 = 0;
 let predictedNextTime7dDeep = 0;
 let predictedNextTime30dDeep = 0;
 
+let globalMonthEqs = [];
+let gaiaCanvas = document.getElementById('gaiaCanvas');
+let gaiaCtx = gaiaCanvas ? gaiaCanvas.getContext('2d') : null;
+let gaiaPopup = document.getElementById('gaia-popup');
+let gaiaPopupClose = document.getElementById('gaia-popup-close');
+let gaiaContainer = document.getElementById('gaia-diagram-container');
+
+if (gaiaPopupClose) {
+    gaiaPopupClose.addEventListener('click', (e) => {
+        e.stopPropagation();
+        gaiaPopup.classList.add('hidden');
+    });
+}
+if (gaiaContainer) {
+    gaiaContainer.addEventListener('click', () => {
+        if (gaiaPopup) gaiaPopup.classList.remove('hidden');
+        updateGaiaPopup();
+    });
+}
+
+
 function updatePrediction() {
     let renderCountdown = (id, predictedTime, normalColor) => {
         const el = document.getElementById(id);
@@ -327,6 +348,11 @@ async function fetchEarthquakes() {
             
             let deepText = eq.depth >= 150.0 ? " [DEEP]" : "";
             li.textContent = `[${timeStr}] M${eq.mag.toFixed(1)}${deepText} - ${eq.place}`;
+            
+            li.addEventListener('click', () => {
+                selectEqFromList(eq);
+            });
+            
             eqList.appendChild(li);
         }
         
@@ -669,6 +695,8 @@ async function fetchLongTermStats() {
         
         // Sort newest first
         monthEqs.sort((a, b) => b.time - a.time);
+        globalMonthEqs = monthEqs;
+        if (typeof drawGaiaDiagram === 'function') drawGaiaDiagram();
         
         let now = Date.now();
         let weekEqs = monthEqs.filter(eq => (now - eq.time) < 7 * 86400000);
@@ -767,6 +795,268 @@ setInterval(fetchEarthquakes, 60000); // refresh every minute
 
 fetchLongTermStats();
 setInterval(fetchLongTermStats, 3600000); // refresh every hour
+
+function drawGaiaDiagram() {
+    if (!gaiaCanvas || !gaiaCtx || !gaiaContainer) return;
+    
+    // Resize canvas to match container
+    const rect = gaiaContainer.getBoundingClientRect();
+    gaiaCanvas.width = rect.width - 30; // padding
+    gaiaCanvas.height = 40;
+    
+    gaiaCtx.clearRect(0, 0, gaiaCanvas.width, gaiaCanvas.height);
+    
+    if (globalMonthEqs.length === 0) return;
+    
+    const now = Date.now();
+    const timeframeMs = 144 * 3600 * 1000; // 144 hours (6 days)
+    const startTime = now - timeframeMs;
+    
+    // Filter to last 144h
+    let eqs144h = globalMonthEqs.filter(eq => eq.time >= startTime);
+    
+    // Draw baseline
+    gaiaCtx.beginPath();
+    gaiaCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    gaiaCtx.moveTo(0, gaiaCanvas.height / 2);
+    gaiaCtx.lineTo(gaiaCanvas.width, gaiaCanvas.height / 2);
+    gaiaCtx.stroke();
+    
+    // Draw earthquakes as spikes on the baseline (like a seismograph)
+    for (let eq of eqs144h) {
+        let x = gaiaCanvas.width - ((now - eq.time) / timeframeMs) * gaiaCanvas.width;
+        let mag = eq.mag;
+        let height = (mag - 2.5) * 6; // scale magnitude to pixel height
+        if (height < 2) height = 2;
+        
+        let color = '#00ffcc'; // M3
+        if (mag >= 4.0) color = '#ff8800'; // M4
+        if (mag >= 5.0) color = '#ff3333'; // M5+
+        if (mag >= 7.0) color = '#ff33ff'; // M7+
+        
+        gaiaCtx.beginPath();
+        gaiaCtx.strokeStyle = color;
+        gaiaCtx.lineWidth = mag >= 5.0 ? 2 : 1;
+        gaiaCtx.moveTo(x, gaiaCanvas.height / 2);
+        
+        // Alternate up and down for visual effect, or just up
+        let dir = (eq.time % 2 === 0) ? -1 : 1;
+        gaiaCtx.lineTo(x, gaiaCanvas.height / 2 + (height * dir));
+        gaiaCtx.stroke();
+    }
+}
+
+function updateGaiaPopup() {
+    let statsDiv = document.getElementById('gaia-popup-stats');
+    if (!statsDiv || globalMonthEqs.length === 0) return;
+    
+    // Find consecutive M3+ without M4+
+    let m3Count = 0;
+    let lastM4Time = 0;
+    
+    for (let eq of globalMonthEqs) {
+        if (eq.mag >= 4.0) {
+            lastM4Time = eq.time;
+            break;
+        }
+        if (eq.mag >= 3.0 && eq.mag < 4.0) {
+            m3Count++;
+        }
+    }
+    
+    // Determine state
+    let stateColor = '#00ffcc';
+    let stateText = 'Entspannt (Ruhephase)';
+    let m456Prob = 'Niedrig';
+    let m78Prob = 'Sehr Niedrig';
+    let m910Prob = 'Nahezu Null';
+    
+    if (m3Count >= 5 && m3Count <= 8) {
+        stateColor = '#ffff00';
+        stateText = 'Leichte Vorwehen';
+        m456Prob = 'Mittel (ca. 40%)';
+    } else if (m3Count >= 9 && m3Count < 10) {
+        stateColor = '#ff8800';
+        stateText = 'Spannungsaufbau';
+        m456Prob = 'Erhöht (ca. 60%)';
+    } else if (m3Count >= 10 && m3Count <= 16) {
+        stateColor = '#ff3333';
+        stateText = 'Starke Wehen (Kritisch)';
+        m456Prob = 'Sehr Hoch (Entladung M4-M6 erwartet)';
+        m78Prob = 'Erhöhtes Risiko';
+    } else if (m3Count > 16) {
+        stateColor = '#ff33ff';
+        stateText = 'Extrem! Warnstufe (Überfällig)';
+        m456Prob = 'Fast sicher (100%)';
+        m78Prob = 'Kritisch (Vorstufe M7+)';
+        if (m3Count > 25) { // Arbitrary high number for extreme regularity
+            m910Prob = 'WARNUNG: Megaquake Potential (M9+)';
+        }
+    }
+    
+    let timeSinceM4 = Date.now() - lastM4Time;
+    let hours = Math.floor(timeSinceM4 / 3600000);
+    let mins = Math.floor((timeSinceM4 % 3600000) / 60000);
+    
+    let html = `
+        <div class="gaia-pred-row">
+            <span class="gaia-pred-label">M3 earthquake since the last M4+:</span>
+            <span class="gaia-pred-val" style="color:${stateColor}; font-size:14px;">${m3Count}</span>
+        </div>
+        <div class="gaia-pred-row">
+            <span class="gaia-pred-label">Time since last discharge (M4+):</span>
+            <span class="gaia-pred-val">${hours}h ${mins}m</span>
+        </div>
+        <div class="gaia-pred-row">
+            <span class="gaia-pred-label">Current Contraction Status:</span>
+            <span class="gaia-pred-val" style="color:${stateColor};">${stateText}</span>
+        </div>
+        <div style="margin-top:8px; border-top:1px solid rgba(255,255,255,0.1); padding-top:8px; font-size:11px; color:#aaa;">
+            PROGNOSIS (Based on pre-labor contractions):
+        </div>
+        <div class="gaia-pred-row">
+            <span class="gaia-pred-label" style="color:#ff8800;">M4 - M6 probability:</span>
+            <span class="gaia-pred-val" style="color:#ff8800;">${m456Prob}</span>
+        </div>
+        <div class="gaia-pred-row">
+            <span class="gaia-pred-label" style="color:#ff3333;">M7 - M8 probability:</span>
+            <span class="gaia-pred-val" style="color:#ff3333;">${m78Prob}</span>
+        </div>
+        <div class="gaia-pred-row">
+            <span class="gaia-pred-label" style="color:#ff33ff;">M9 - M10 (Big One) Risk:</span>
+            <span class="gaia-pred-val" style="color:#ff33ff;">${m910Prob}</span>
+        </div>
+    `;
+    
+    statsDiv.innerHTML = html;
+}
+
+// Update live every second if visible
+setInterval(() => {
+    if (gaiaPopup && !gaiaPopup.classList.contains('hidden')) {
+        updateGaiaPopup();
+    }
+}, 1000);
+
+// Window resize handler for diagram
+window.addEventListener('resize', () => {
+    drawGaiaDiagram();
+});
+
+// ========== Calculation Explainer Popup Logic ==========
+let calcPopup = document.getElementById('calc-popup');
+let calcPopupClose = document.getElementById('calc-popup-close');
+if (calcPopupClose) {
+    calcPopupClose.addEventListener('click', (e) => {
+        e.stopPropagation();
+        calcPopup.classList.add('hidden');
+    });
+}
+
+document.addEventListener('click', (e) => {
+    let stat = e.target.closest('.clickable-stat');
+    if (!stat || !calcPopup) return;
+    e.stopPropagation();
+    
+    // Close other popups
+    if (gaiaPopup && !gaiaPopup.classList.contains('hidden')) gaiaPopup.classList.add('hidden');
+    if (eqPopup && !eqPopup.classList.contains('hidden')) eqPopup.classList.add('hidden');
+    
+    let calcType = stat.getAttribute('data-calc');
+    let title = "Calculation";
+    let desc = "";
+    let mathStr = "";
+    
+    let now = Date.now();
+    let formatDur = (ms) => {
+        let hrs = Math.floor(ms/3600000);
+        let mins = Math.floor((ms%3600000)/60000);
+        return `${hrs}h ${mins}m`;
+    };
+    
+    let formatTime = (ts) => {
+        let d = new Date(ts);
+        return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0') + ' (Local)';
+    };
+    
+    if (calcType === 'short' || calcType === 'short-m4') {
+        let isM4 = calcType === 'short-m4';
+        let eqs = isM4 ? earthquakes.filter(eq => eq.mag >= 4.0) : earthquakes;
+        let limit = Math.min(5, eqs.length);
+        if (limit < 2) {
+            desc = "Nicht genug Daten in den letzten 24h.";
+        } else {
+            let totalDiff = 0;
+            for (let i = 0; i < limit - 1; i++) {
+                totalDiff += Math.abs(eqs[i].time - eqs[i+1].time);
+            }
+            let avgDiff = totalDiff / (limit - 1);
+            let nextTime = eqs[0].time + avgDiff;
+            let timeAgo = now - eqs[0].time;
+            
+            title = isM4 ? "M4.0+ Short-Term (Last 5)" : "M3.0+ Short-Term (Last 5)";
+            desc = `We calculate the time intervals between the last ${limit} earthquakes in this category. The average of these intervals is added to the time of the most recent earthquake to forecast the next statistical release..`;
+            mathStr = `Last ${limit} Earthquake analyzed.\n` +
+                      `Average-Intervall: ${formatDur(avgDiff)}\n\n` +
+                      `last Earthquake: ${formatTime(eqs[0].time)} (${formatDur(timeAgo)} ago)\n` +
+                      `Forecast period: ${formatTime(nextTime)}\n`;
+        }
+    } else if (calcType === 'global' || calcType === 'global-m4') {
+        let isM4 = calcType === 'global-m4';
+        let eqs = isM4 ? earthquakes.filter(eq => eq.mag >= 4.0) : earthquakes;
+        if (eqs.length < 2) {
+            desc = "not enough data.";
+        } else {
+            let oldest = eqs[eqs.length - 1].time;
+            let newest = eqs[0].time;
+            let timeSpan = newest - oldest;
+            let avgDiff = timeSpan / (eqs.length - 1);
+            let nextTime = newest + avgDiff;
+            
+            title = isM4 ? "M4.0+ Global (24H)" : "M3.0+ Global (24H)";
+            desc = `We calculate the time intervals between ALL earthquakes (${eqs.length} in total) in this category over the last 24 hours. The global average interval is added to the time of the most recent earthquake.`;
+            mathStr = `Number of earthquakes (24h): ${eqs.length}\n` +
+                      `Global average: ${formatDur(avgDiff)}\n\n` +
+                      `Final Tremor: ${formatTime(newest)}\n` +
+                      `Forecast period: ${formatTime(nextTime)}\n`;
+        }
+    } else if (calcType && calcType.startsWith('7d') || calcType && calcType.startsWith('30d')) {
+        let is30 = calcType.startsWith('30d');
+        let typeStr = "M3.0+";
+        if (calcType.includes('mag5')) typeStr = "M5.0+";
+        if (calcType.includes('mag7')) typeStr = "M7.0+";
+        if (calcType.includes('deep')) typeStr = "Deep (>150km)";
+        
+        title = `Long-Term Stats (${is30 ? '30 Days' : '7 Days'} / ${typeStr})`;
+        desc = `Here we take all historical data from the last ${is30 ? '30' : '7'} ...days for the selected category. The total time span between the first and last earthquake of these days is divided by the number of intervals to obtain a highly precise, global average interval.`;
+        
+        let predictedTimeVar = predictedNextTime7d;
+        if (calcType === '7d-mag5') predictedTimeVar = predictedNextTime7dMag5;
+        if (calcType === '7d-mag7') predictedTimeVar = predictedNextTime7dMag7;
+        if (calcType === '30d') predictedTimeVar = predictedNextTime30d;
+        if (calcType === '30d-mag5') predictedTimeVar = predictedNextTime30dMag5;
+        if (calcType === '30d-mag7') predictedTimeVar = predictedNextTime30dMag7;
+        
+        if (predictedTimeVar === 0) {
+            mathStr = "Calculating data... or insufficient historical data available.";
+        } else {
+            mathStr = `Historical average loaded from USGS feed.\n` +
+                      `Next projected discharge: ${formatTime(predictedTimeVar)}\n\n` +
+                      `(Calculation method: Time of the last earthquake in history + calculated average interval of the last ${is30 ? '30' : '7'} Day)`;
+        }
+    }
+    
+    document.getElementById('calc-popup-title').textContent = title;
+    document.getElementById('calc-popup-desc').innerHTML = desc;
+    document.getElementById('calc-popup-math').textContent = mathStr;
+    
+    // HIER EINFÜGEN: Schiebt das Fenster rechts neben die Seitenleiste
+    calcPopup.style.left = '360px'; 
+    calcPopup.style.top = Math.max(50, e.clientY - 50) + 'px';
+    calcPopup.style.transform = 'none';
+
+    calcPopup.classList.remove('hidden');
+});
 
 function draw() {
     ctx.clearRect(0, 0, width, height);
@@ -1068,6 +1358,33 @@ function showEqPopup(eq, screenX, screenY) {
     eqPopup.classList.remove('hidden');
 }
 
+function selectEqFromList(eq) {
+    if (gaiaPopup && !gaiaPopup.classList.contains('hidden')) gaiaPopup.classList.add('hidden');
+    let calcPopup = document.getElementById('calc-popup');
+    if (calcPopup && !calcPopup.classList.contains('hidden')) calcPopup.classList.add('hidden');
+    
+    let r = ((90.0 - eq.lat) / 180.0) * 723.0;
+    let angle = eq.lon * Math.PI / 180.0;
+    let map_x = r * Math.sin(angle);
+    let map_y = r * Math.cos(angle);
+    
+    zoom = 3.5;
+    let targetScale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
+    offsetX = -map_x * targetScale;
+    offsetY = -map_y * targetScale;
+    
+    // Auto reset camera after 20 seconds
+    if (autoResetTimeout) clearTimeout(autoResetTimeout);
+    autoResetTimeout = setTimeout(() => {
+        zoom = 1.0;
+        offsetX = 0;
+        offsetY = 0;
+        autoResetTimeout = null;
+    }, 20000);
+    
+    showEqPopup(eq, width / 2, height / 2);
+}
+
 function hideEqPopup() {
     eqPopup.classList.add('hidden');
     selectedEq = null;
@@ -1212,4 +1529,49 @@ document.getElementById('help-modal').addEventListener('click', (e) => {
     if (e.target.id === 'help-modal') {
         document.getElementById('help-modal').classList.add('hidden');
     }
+});
+
+document.querySelectorAll('.eq-popup').forEach(popup => {
+    const header = popup.querySelector('.eq-popup-header');
+    if (!header) return;
+    
+    let isDragging = false, startX, startY, initialLeft, initialTop;
+    
+    const startDrag = (clientX, clientY) => {
+        isDragging = true;
+        header.style.cursor = 'grabbing';
+        startX = clientX;
+        startY = clientY;
+        initialLeft = popup.offsetLeft;
+        initialTop = popup.offsetTop;
+        // Verhindert, dass CSS-Transforms die Positionierung stören
+        popup.style.transform = 'none'; 
+        popup.style.margin = '0';
+    };
+
+    const onDrag = (clientX, clientY) => {
+        if (!isDragging) return;
+        popup.style.left = (initialLeft + (clientX - startX)) + 'px';
+        popup.style.top = (initialTop + (clientY - startY)) + 'px';
+    };
+
+    const stopDrag = () => {
+        isDragging = false;
+        header.style.cursor = 'grab';
+    };
+
+    // Maus-Events (Desktop)
+    header.addEventListener('mousedown', e => startDrag(e.clientX, e.clientY));
+    window.addEventListener('mousemove', e => onDrag(e.clientX, e.clientY));
+    window.addEventListener('mouseup', stopDrag);
+
+    // Touch-Events (Mobile/Webcode)
+    header.addEventListener('touchstart', e => {
+        startDrag(e.touches[0].clientX, e.touches[0].clientY);
+    }, {passive: true});
+    window.addEventListener('touchmove', e => {
+        if (!isDragging) return;
+        onDrag(e.touches[0].clientX, e.touches[0].clientY);
+    }, {passive: true});
+    window.addEventListener('touchend', stopDrag);
 });
