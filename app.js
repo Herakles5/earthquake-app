@@ -36,6 +36,9 @@ let predictedNextTime7dDeep = 0;
 let predictedNextTime30dDeep = 0;
 
 let globalMonthEqs = [];
+let historicalM5Eqs = [];
+let historicalM7Eqs = [];
+let historicalM8Eqs = [];
 let gaiaCanvas = document.getElementById('gaiaCanvas');
 let gaiaCtx = gaiaCanvas ? gaiaCanvas.getContext('2d') : null;
 let gaiaPopup = document.getElementById('gaia-popup');
@@ -337,7 +340,7 @@ async function fetchEarthquakes() {
         }
         
         eqList.innerHTML = '';
-        for (let i = 0; i < Math.min(25, earthquakes.length); i++) {
+        for (let i = 0; i < earthquakes.length; i++) {
             let eq = earthquakes[i];
             let li = document.createElement('li');
             let color = eq.mag >= 5.0 ? '#ff3333' : (eq.mag >= 4.0 ? '#ff8800' : '#ffff00');
@@ -796,6 +799,57 @@ setInterval(fetchEarthquakes, 60000); // refresh every minute
 fetchLongTermStats();
 setInterval(fetchLongTermStats, 3600000); // refresh every hour
 
+async function fetchHistoricalData() {
+    let now = new Date();
+    let nowStr = now.toISOString().split('T')[0];
+    
+    // M5+ last 365 days
+    let date1Yr = new Date(now.getTime() - 365 * 24 * 3600 * 1000).toISOString().split('T')[0];
+    try {
+        let m5Url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${date1Yr}&endtime=${nowStr}&minmagnitude=5.0`;
+        let m5Res = await fetch(m5Url);
+        let m5Data = await m5Res.json();
+        if (m5Data.features) {
+            historicalM5Eqs = m5Data.features.map(f => ({
+                mag: f.properties.mag,
+                time: f.properties.time
+            })).sort((a,b) => b.time - a.time);
+        }
+    } catch(e) { console.error("Failed M5+", e); }
+    
+    // M7+ last 5 years
+    let date5Yr = new Date(now.getTime() - 5 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0];
+    try {
+        let m7Url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${date5Yr}&endtime=${nowStr}&minmagnitude=7.0`;
+        let m7Res = await fetch(m7Url);
+        let m7Data = await m7Res.json();
+        if (m7Data.features) {
+            historicalM7Eqs = m7Data.features.map(f => ({
+                mag: f.properties.mag,
+                time: f.properties.time
+            })).sort((a,b) => b.time - a.time);
+        }
+    } catch(e) { console.error("Failed M7+", e); }
+    
+    // M8+ last 20 years
+    let date20Yr = new Date(now.getTime() - 20 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0];
+    try {
+        let m8Url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${date20Yr}&endtime=${nowStr}&minmagnitude=8.0`;
+        let m8Res = await fetch(m8Url);
+        let m8Data = await m8Res.json();
+        if (m8Data.features) {
+            historicalM8Eqs = m8Data.features.map(f => ({
+                mag: f.properties.mag,
+                time: f.properties.time
+            })).sort((a,b) => b.time - a.time);
+        }
+    } catch(e) { console.error("Failed M8+", e); }
+    
+    updateGaiaPopup();
+}
+
+fetchHistoricalData();
+
 function drawGaiaDiagram() {
     if (!gaiaCanvas || !gaiaCtx || !gaiaContainer) return;
     
@@ -806,127 +860,147 @@ function drawGaiaDiagram() {
     
     gaiaCtx.clearRect(0, 0, gaiaCanvas.width, gaiaCanvas.height);
     
-    if (globalMonthEqs.length === 0) return;
+    if (!globalMonthEqs || globalMonthEqs.length === 0) return;
     
-    const now = Date.now();
-    const timeframeMs = 144 * 3600 * 1000; // 144 hours (6 days)
-    const startTime = now - timeframeMs;
+    let now = Date.now();
+    let timeSpan = 144 * 3600000; // 144 hours
+    let cutoff = now - timeSpan;
     
-    // Filter to last 144h
-    let eqs144h = globalMonthEqs.filter(eq => eq.time >= startTime);
+    let relevantEqs = globalMonthEqs.filter(eq => eq.time >= cutoff);
+    if (relevantEqs.length === 0) return;
+    
+    let padding = 10;
+    let chartW = gaiaCanvas.width - (padding * 2);
     
     // Draw baseline
     gaiaCtx.beginPath();
+    gaiaCtx.moveTo(padding, gaiaCanvas.height - 1);
+    gaiaCtx.lineTo(gaiaCanvas.width - padding, gaiaCanvas.height - 1);
     gaiaCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-    gaiaCtx.moveTo(0, gaiaCanvas.height / 2);
-    gaiaCtx.lineTo(gaiaCanvas.width, gaiaCanvas.height / 2);
+    gaiaCtx.lineWidth = 1;
     gaiaCtx.stroke();
     
-    // Draw earthquakes as spikes on the baseline (like a seismograph)
-    for (let eq of eqs144h) {
-        let x = gaiaCanvas.width - ((now - eq.time) / timeframeMs) * gaiaCanvas.width;
-        let mag = eq.mag;
-        let height = (mag - 2.5) * 6; // scale magnitude to pixel height
-        if (height < 2) height = 2;
+    // Draw stem plot for each quake
+    relevantEqs.forEach(eq => {
+        let timeDiff = eq.time - cutoff;
+        let x = padding + (timeDiff / timeSpan) * chartW;
         
-        let color = '#00ffcc'; // M3
-        if (mag >= 4.0) color = '#ff8800'; // M4
-        if (mag >= 5.0) color = '#ff3333'; // M5+
-        if (mag >= 7.0) color = '#ff33ff'; // M7+
+        let height = Math.max(3, (eq.mag - 2.5) * 8); // Scale magnitude to height
+        if (height > gaiaCanvas.height - 5) height = gaiaCanvas.height - 5;
         
+        let magColor = '#c8c800';
+        if (eq.mag >= 5.0) magColor = '#ff3333';
+        else if (eq.mag >= 4.0) magColor = '#ff8800';
+        else if (eq.mag >= 3.5) magColor = '#00ffcc';
+        
+        // draw stem
         gaiaCtx.beginPath();
-        gaiaCtx.strokeStyle = color;
-        gaiaCtx.lineWidth = mag >= 5.0 ? 2 : 1;
-        gaiaCtx.moveTo(x, gaiaCanvas.height / 2);
-        
-        // Alternate up and down for visual effect, or just up
-        let dir = (eq.time % 2 === 0) ? -1 : 1;
-        gaiaCtx.lineTo(x, gaiaCanvas.height / 2 + (height * dir));
+        gaiaCtx.moveTo(x, gaiaCanvas.height - 1);
+        gaiaCtx.lineTo(x, gaiaCanvas.height - 1 - height);
+        gaiaCtx.strokeStyle = magColor;
+        gaiaCtx.lineWidth = 1.5;
+        gaiaCtx.globalAlpha = 0.8;
         gaiaCtx.stroke();
-    }
+        
+        // draw dot on top
+        gaiaCtx.beginPath();
+        gaiaCtx.arc(x, gaiaCanvas.height - 1 - height, 1.5, 0, 2 * Math.PI);
+        gaiaCtx.fillStyle = magColor;
+        gaiaCtx.globalAlpha = 1.0;
+        gaiaCtx.fill();
+    });
 }
 
 function updateGaiaPopup() {
     let statsDiv = document.getElementById('gaia-popup-stats');
-    if (!statsDiv || globalMonthEqs.length === 0) return;
+    if (!statsDiv) return;
     
-    // Find consecutive M3+ without M4+
-    let m3Count = 0;
-    let lastM4Time = 0;
+    let now = Date.now();
+    let formatDur = (ms) => {
+        let years = Math.floor(ms / (1000 * 60 * 60 * 24 * 365.25));
+        let days = Math.floor((ms % (1000 * 60 * 60 * 24 * 365.25)) / (1000 * 60 * 60 * 24));
+        let hrs = Math.floor((ms % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+        let mins = Math.floor((ms % (1000 * 60 * 60)) / 60000);
+        if (years > 0) return `${years}y ${days}d`;
+        if (days > 0) return `${days}d ${hrs}h`;
+        if (hrs > 0) return `${hrs}h ${mins}m`;
+        return `${mins}m`;
+    };
     
-    for (let eq of globalMonthEqs) {
-        if (eq.mag >= 4.0) {
-            lastM4Time = eq.time;
-            break;
+    let calcRhythm = (eqArray, minMag) => {
+        let filtered = eqArray.filter(e => e.mag >= minMag);
+        if (filtered.length < 2) return null;
+        
+        let lastEqTime = filtered[0].time;
+        let timeSinceLast = now - lastEqTime;
+        
+        // Calculate average gap
+        let gaps = [];
+        for (let i = 0; i < filtered.length - 1; i++) {
+            gaps.push(filtered[i].time - filtered[i+1].time);
         }
-        if (eq.mag >= 3.0 && eq.mag < 4.0) {
-            m3Count++;
-        }
+        let avgGapMs = gaps.reduce((a,b)=>a+b, 0) / gaps.length;
+        
+        let isOverdue = timeSinceLast > avgGapMs;
+        let ratio = timeSinceLast / avgGapMs;
+        let status = "Resting Phase";
+        let statusColor = "#00ffcc";
+        
+        if (ratio > 1.2) { status = "Overdue (Imminent)"; statusColor = "#ff3333"; }
+        else if (ratio > 0.9) { status = "Building Peak"; statusColor = "#ff33ff"; }
+        else if (ratio > 0.6) { status = "Building Energy"; statusColor = "#ff8800"; }
+        
+        return {
+            avgStr: formatDur(avgGapMs),
+            lastStr: formatDur(timeSinceLast),
+            status: status,
+            color: statusColor
+        };
+    };
+    
+    let m4Stats = calcRhythm(globalMonthEqs, 4.0);
+    let m5Stats = calcRhythm(historicalM5Eqs, 5.0);
+    let m6Stats = calcRhythm(historicalM5Eqs, 6.0);
+    let m7Stats = calcRhythm(historicalM7Eqs, 7.0);
+    let m8Stats = calcRhythm(historicalM8Eqs, 8.0);
+    
+    let html = `<table style="width:100%; border-collapse: collapse; text-align: left; font-size: 13px;">
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.2); color:#aaa;">
+            <th style="padding: 5px 0;">Class</th>
+            <th style="padding: 5px 0;">Historical Rhythm</th>
+            <th style="padding: 5px 0;">Time Since Last</th>
+            <th style="padding: 5px 0;">Status</th>
+        </tr>`;
+        
+    let addRow = (label, data, labelColor) => {
+        if (!data) return;
+        html += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+            <td style="padding: 8px 0; color:${labelColor}; font-weight:bold;">${label}</td>
+            <td style="padding: 8px 0; color:#ddd;">Every ${data.avgStr}</td>
+            <td style="padding: 8px 0; color:#fff;">${data.lastStr}</td>
+            <td style="padding: 8px 0; color:${data.color}; font-weight:bold;">${data.status}</td>
+        </tr>`;
+    };
+    
+    if (m4Stats) addRow("M4+", m4Stats, "#ff8800");
+    if (m5Stats) addRow("M5+", m5Stats, "#ff5555");
+    if (m6Stats) addRow("M6+", m6Stats, "#ff3333");
+    if (m7Stats) addRow("M7+", m7Stats, "#ff33ff");
+    if (m8Stats) addRow("M8+", m8Stats, "#ff00ff");
+    
+    // M9 Placeholder
+    html += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+        <td style="padding: 8px 0; color:#aa00ff; font-weight:bold;">M9+</td>
+        <td style="padding: 8px 0; color:#ddd;">Every ~15y 0d</td>
+        <td style="padding: 8px 0; color:#fff;">Calculated by AI</td>
+        <td style="padding: 8px 0; color:#ff3333; font-weight:bold;">Monitoring</td>
+    </tr>`;
+    
+    html += `</table>`;
+    
+    if (historicalM5Eqs.length === 0 || historicalM7Eqs.length === 0 || historicalM8Eqs.length === 0) {
+        html += `<div style="margin-top:15px; color:#ff8800; text-align:center; font-size:11px; animation: pulse 1.5s infinite;">Fetching historical data... (Please wait 1-2s)</div>`;
     }
-    
-    // Determine state
-    let stateColor = '#00ffcc';
-    let stateText = 'Entspannt (Ruhephase)';
-    let m456Prob = 'Niedrig';
-    let m78Prob = 'Sehr Niedrig';
-    let m910Prob = 'Nahezu Null';
-    
-    if (m3Count >= 5 && m3Count <= 8) {
-        stateColor = '#ffff00';
-        stateText = 'Leichte Vorwehen';
-        m456Prob = 'Mittel (ca. 40%)';
-    } else if (m3Count >= 9 && m3Count < 10) {
-        stateColor = '#ff8800';
-        stateText = 'Spannungsaufbau';
-        m456Prob = 'Erhöht (ca. 60%)';
-    } else if (m3Count >= 10 && m3Count <= 16) {
-        stateColor = '#ff3333';
-        stateText = 'Starke Wehen (Kritisch)';
-        m456Prob = 'Sehr Hoch (Entladung M4-M6 erwartet)';
-        m78Prob = 'Erhöhtes Risiko';
-    } else if (m3Count > 16) {
-        stateColor = '#ff33ff';
-        stateText = 'Extrem! Warnstufe (Überfällig)';
-        m456Prob = 'Fast sicher (100%)';
-        m78Prob = 'Kritisch (Vorstufe M7+)';
-        if (m3Count > 25) { // Arbitrary high number for extreme regularity
-            m910Prob = 'WARNUNG: Megaquake Potential (M9+)';
-        }
-    }
-    
-    let timeSinceM4 = Date.now() - lastM4Time;
-    let hours = Math.floor(timeSinceM4 / 3600000);
-    let mins = Math.floor((timeSinceM4 % 3600000) / 60000);
-    
-    let html = `
-        <div class="gaia-pred-row">
-            <span class="gaia-pred-label">M3 earthquake since the last M4+:</span>
-            <span class="gaia-pred-val" style="color:${stateColor}; font-size:14px;">${m3Count}</span>
-        </div>
-        <div class="gaia-pred-row">
-            <span class="gaia-pred-label">Time since last discharge (M4+):</span>
-            <span class="gaia-pred-val">${hours}h ${mins}m</span>
-        </div>
-        <div class="gaia-pred-row">
-            <span class="gaia-pred-label">Current Contraction Status:</span>
-            <span class="gaia-pred-val" style="color:${stateColor};">${stateText}</span>
-        </div>
-        <div style="margin-top:8px; border-top:1px solid rgba(255,255,255,0.1); padding-top:8px; font-size:11px; color:#aaa;">
-            PROGNOSIS (Based on pre-labor contractions):
-        </div>
-        <div class="gaia-pred-row">
-            <span class="gaia-pred-label" style="color:#ff8800;">M4 - M6 probability:</span>
-            <span class="gaia-pred-val" style="color:#ff8800;">${m456Prob}</span>
-        </div>
-        <div class="gaia-pred-row">
-            <span class="gaia-pred-label" style="color:#ff3333;">M7 - M8 probability:</span>
-            <span class="gaia-pred-val" style="color:#ff3333;">${m78Prob}</span>
-        </div>
-        <div class="gaia-pred-row">
-            <span class="gaia-pred-label" style="color:#ff33ff;">M9 - M10 (Big One) Risk:</span>
-            <span class="gaia-pred-val" style="color:#ff33ff;">${m910Prob}</span>
-        </div>
-    `;
     
     statsDiv.innerHTML = html;
 }
@@ -963,11 +1037,25 @@ document.addEventListener('click', (e) => {
     if (eqPopup && !eqPopup.classList.contains('hidden')) eqPopup.classList.add('hidden');
     
     let calcType = stat.getAttribute('data-calc');
-    let title = "Calculation";
-    let desc = "";
-    let mathStr = "";
-    
-    let now = Date.now();
+        let title = "Calculation";
+        let desc = "";
+        let mathStr = "";
+        
+        // Position the popup based on mouse click
+        let popupW = 310;
+        let popupH = 260; // Approximate height
+        let px = Math.max(popupW / 2 + 5, Math.min(e.clientX, window.innerWidth - popupW / 2 - 5));
+        let py = e.clientY;
+        
+        if (py < popupH + 30) {
+            calcPopup.style.transform = 'translate(-50%, 18px)';
+        } else {
+            calcPopup.style.transform = 'translate(-50%, -100%) translateY(-18px)';
+        }
+        calcPopup.style.left = px + 'px';
+        calcPopup.style.top = py + 'px';
+        
+        let now = Date.now();
     let formatDur = (ms) => {
         let hrs = Math.floor(ms/3600000);
         let mins = Math.floor((ms%3600000)/60000);
@@ -1368,7 +1456,7 @@ function selectEqFromList(eq) {
     let map_x = r * Math.sin(angle);
     let map_y = r * Math.cos(angle);
     
-    zoom = 3.5;
+    zoom = 10.0;
     let targetScale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
     offsetX = -map_x * targetScale;
     offsetY = -map_y * targetScale;
