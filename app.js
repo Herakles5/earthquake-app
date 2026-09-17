@@ -1448,7 +1448,6 @@ function draw() {
         ctx.beginPath();
         ctx.strokeStyle = "rgba(255, 50, 50, 0.9)";
         ctx.lineWidth = 3.0;
-        ctx.setLineDash([5, 5]);
         
         let validNodes = Math.min(autopilotIndex, autopilotChain.length - 1);
         for (let i = 0; i <= validNodes; i++) {
@@ -1462,7 +1461,6 @@ function draw() {
             else ctx.lineTo(px, py);
         }
         ctx.stroke();
-        ctx.setLineDash([]);
         
         for (let i = 0; i <= validNodes; i++) {
             let eq = autopilotChain[i];
@@ -1950,8 +1948,8 @@ function startAutopilot() {
     if (isAutopilotActive || earthquakes.length === 0) return;
     isAutopilotActive = true;
     
-    // Get last 10 quakes, reverse to go oldest -> newest
-    autopilotChain = earthquakes.slice(0, 10).reverse();
+    // Get last 6 quakes to prevent canvas rendering lag, reverse to go oldest -> newest
+    autopilotChain = earthquakes.slice(0, 6).reverse();
     autopilotIndex = 0;
     
     function nextAutopilotStep() {
