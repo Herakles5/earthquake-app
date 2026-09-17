@@ -54,6 +54,8 @@ if (gaiaPopupClose) {
         e.stopPropagation();
         gaiaPopup.classList.add('hidden');
     });
+    gaiaPopupClose.addEventListener('mousedown', (e) => e.stopPropagation());
+    gaiaPopupClose.addEventListener('touchstart', (e) => e.stopPropagation(), {passive: true});
 }
 if (gaiaContainer) {
     gaiaContainer.addEventListener('click', () => {
@@ -1072,6 +1074,8 @@ if (calcPopupClose) {
         e.stopPropagation();
         calcPopup.classList.add('hidden');
     });
+    calcPopupClose.addEventListener('mousedown', (e) => e.stopPropagation());
+    calcPopupClose.addEventListener('touchstart', (e) => e.stopPropagation(), {passive: true});
 }
 
 document.addEventListener('click', (e) => {
@@ -1670,6 +1674,12 @@ document.getElementById('eq-popup-close').addEventListener('click', (e) => {
     e.stopPropagation();
     hideEqPopup();
 });
+document.getElementById('eq-popup-close').addEventListener('mousedown', (e) => {
+    e.stopPropagation(); // Prevent dragging when clicking close
+});
+document.getElementById('eq-popup-close').addEventListener('touchstart', (e) => {
+    e.stopPropagation();
+}, {passive: true});
 
 // Touch & Drag (with click detection)
 canvas.addEventListener('mousedown', e => {
@@ -1921,8 +1931,6 @@ function renderSearchResults() {
             offsetX = -tx / zoom;
             offsetY = -ty / zoom;
             
-            draw();
-            
             // Show popup
             updateEqPopup(eq, window.innerWidth / 2, window.innerHeight / 2);
             eqPopup.classList.remove('hidden');
@@ -1958,7 +1966,6 @@ function stopAutopilot(clearChain = false) {
     if (autopilotInterval) clearInterval(autopilotInterval);
     autopilotInterval = null;
     if (eqPopup) eqPopup.classList.add('hidden');
-    draw(); // update map
 }
 
 function startAutopilot() {
@@ -1989,8 +1996,6 @@ function startAutopilot() {
         let targetScale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
         offsetX = -(targetR * Math.sin(targetAngle)) * targetScale;
         offsetY = -(targetR * Math.cos(targetAngle)) * targetScale;
-        
-        draw();
         
         // Show popup
         showEqPopup(targetEq, window.innerWidth / 2, window.innerHeight / 2);
