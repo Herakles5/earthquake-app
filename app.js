@@ -365,17 +365,19 @@ async function fetchEarthquakes() {
         }
         
         eqList.innerHTML = '';
+        let totalMainCount = earthquakes.length;
         for (let i = 0; i < earthquakes.length; i++) {
             let eq = earthquakes[i];
             let li = document.createElement('li');
+            li.id = 'main-eq-item-' + eq.id;
             let color = eq.mag >= 5.0 ? '#ff3333' : (eq.mag >= 4.0 ? '#ff8800' : '#ffff00');
-            li.style.color = color;
             
             let d = new Date(eq.time);
             let timeStr = d.getHours().toString().padStart(2, '0') + ':' + d.getMinutes().toString().padStart(2, '0');
             
             let deepText = eq.depth >= 150.0 ? " [DEEP]" : "";
-            li.textContent = `[${timeStr}] M${eq.mag.toFixed(1)}${deepText} - ${eq.place}`;
+            let displayNum = totalMainCount - i;
+            li.innerHTML = `<span style="color:#888; font-weight:bold; margin-right:5px;">#${displayNum}</span><span style="color:${color};">[${timeStr}] M${eq.mag.toFixed(1)}${deepText} - ${eq.place}</span>`;
             
             li.addEventListener('click', () => {
                 selectEqFromList(eq);
@@ -1900,8 +1902,8 @@ function renderSearchResults() {
     // Sort just to be sure
     filtered.sort((a,b) => b.time - a.time);
     
-    // Take top 50 max to avoid DOM overload
-    filtered = filtered.slice(0, 50);
+    // Take top 500 max to avoid DOM overload
+    filtered = filtered.slice(0, 500);
     
     searchResultsList.innerHTML = '';
     
@@ -1910,14 +1912,16 @@ function renderSearchResults() {
         return;
     }
     
+    let totalCount = filtered.length;
     filtered.forEach((eq, index) => {
         let li = document.createElement('li');
-        li.id = 'eq-list-item-' + eq.id;
+        li.id = 'search-eq-item-' + eq.id;
         let d = new Date(eq.time);
         let timeStr = d.toISOString().split('T')[0] + " " + d.toISOString().split('T')[1].substring(0,5);
         let magColor = eq.mag >= 7.0 ? '#ff3333' : (eq.mag >= 5.0 ? '#ff8800' : '#00ffcc');
         
-        li.innerHTML = `<span style="color:#888; font-weight:bold; margin-right:5px;">#${index + 1}</span> [${timeStr}] <span style="color:${magColor};font-weight:bold;">M${eq.mag.toFixed(1)}</span> - ${eq.place}`;
+        let displayNum = totalCount - index;
+        li.innerHTML = `<span style="color:#888; font-weight:bold; margin-right:5px;">#${displayNum}</span> [${timeStr}] <span style="color:${magColor};font-weight:bold;">M${eq.mag.toFixed(1)}</span> - ${eq.place}`;
         
         li.addEventListener('click', () => {
             // Pan to eq
@@ -2002,11 +2006,18 @@ function startAutopilot() {
         showEqPopup(targetEq, window.innerWidth / 2, window.innerHeight / 2);
         
         // Highlight in list
-        document.querySelectorAll('#search-results-list li').forEach(li => li.classList.remove('active'));
-        let activeLi = document.getElementById('eq-list-item-' + targetEq.id);
-        if (activeLi) {
-            activeLi.classList.add('active');
-            activeLi.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        document.querySelectorAll('#search-results-list li, #eq-list li').forEach(li => li.classList.remove('active'));
+        
+        let searchLi = document.getElementById('search-eq-item-' + targetEq.id);
+        if (searchLi) {
+            searchLi.classList.add('active');
+            searchLi.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        
+        let mainLi = document.getElementById('main-eq-item-' + targetEq.id);
+        if (mainLi) {
+            mainLi.classList.add('active');
+            mainLi.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
         
         autopilotIndex++;

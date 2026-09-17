@@ -155,7 +155,8 @@ canvas {
 #search-results-list li:hover {
     background: rgba(255, 136, 0, 0.15);
 }
-#search-results-list li.active {
+#search-results-list li.active,
+#eq-list li.active {
     background: rgba(218, 165, 32, 0.3); /* slightly dark gold */
     border-left: 3px solid #ffd700;
 }
