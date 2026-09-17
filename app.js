@@ -988,11 +988,28 @@ function updateGaiaPopup() {
         };
     };
     
+    let mergeEqs = (arr1, arr2) => {
+        let map = new Map();
+        let addToMap = (arr) => {
+            if (arr) arr.forEach(eq => {
+                let sig = eq.id ? String(eq.id) : `${eq.lat.toFixed(2)}_${eq.lon.toFixed(2)}_${eq.time}`;
+                map.set(sig, eq);
+            });
+        };
+        addToMap(arr1);
+        addToMap(arr2);
+        return Array.from(map.values()).sort((a,b) => b.time - a.time);
+    };
+    
+    let combinedM5 = mergeEqs(globalMonthEqs, historicalM5Eqs);
+    let combinedM7 = mergeEqs(globalMonthEqs, historicalM7Eqs);
+    let combinedM8 = mergeEqs(globalMonthEqs, historicalM8Eqs);
+    
     let m4Stats = calcRhythm(globalMonthEqs, 4.0);
-    let m5Stats = calcRhythm(historicalM5Eqs, 5.0);
-    let m6Stats = calcRhythm(historicalM5Eqs, 6.0);
-    let m7Stats = calcRhythm(historicalM7Eqs, 7.0);
-    let m8Stats = calcRhythm(historicalM8Eqs, 8.0);
+    let m5Stats = calcRhythm(combinedM5, 5.0);
+    let m6Stats = calcRhythm(combinedM5, 6.0);
+    let m7Stats = calcRhythm(combinedM7, 7.0);
+    let m8Stats = calcRhythm(combinedM8, 8.0);
     
     let html = `<table style="width:100%; border-collapse: collapse; text-align: left; font-size: 13px;">
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.2); color:#aaa;">
