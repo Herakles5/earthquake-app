@@ -58,6 +58,23 @@ if (gaiaContainer) {
     });
 }
 
+// ========== Mathematical Helpers ==========
+function haversineDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Earth's radius in km
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
+function calculateShockRadius(mag) {
+    // Formula: 100 * 3^(Mag - 3)
+    if (mag < 3) return 0;
+    return 100 * Math.pow(3, (mag - 3));
+}
 
 function updatePrediction() {
     let renderCountdown = (id, predictedTime, normalColor) => {
@@ -1179,6 +1196,35 @@ function draw() {
         ctx.stroke();
     }
     
+    let now = Date.now();
+    
+    // --- Draw Shock Zones (Radius) ---
+    for (let i = 0; i < earthquakes.length; i++) {
+        let eq = earthquakes[i];
+        let ageMs = now - eq.time;
+        if (ageMs > 86400000) break; // Only last 24h
+        if (eq.mag >= 5.0) {
+            let shockRadiusKm = calculateShockRadius(eq.mag);
+            let radiusPx = shockRadiusKm * 0.03618 * scale;
+            
+            let r = ((90.0 - eq.lat) / 180.0) * 723.0;
+            let angle = eq.lon * Math.PI / 180.0;
+            let px = mapCx + (r * Math.sin(angle)) * scale;
+            let py = mapCy + (r * Math.cos(angle)) * scale;
+            
+            let pulseTimeLocal = (Date.now() / 500) + i;
+            let pulseSize = radiusPx + Math.sin(pulseTimeLocal) * (radiusPx * 0.05);
+            
+            ctx.beginPath();
+            ctx.arc(px, py, pulseSize, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(255, 51, 51, 0.05)";
+            ctx.fill();
+            ctx.strokeStyle = "rgba(255, 51, 51, 0.3)";
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+    }
+    
     // Draw Earthquakes First (so they are in the background relative to the line)
     pulseTime += 0.1;
     let pulse = (Math.sin(pulseTime) + 1.0) * 0.5;
@@ -1217,8 +1263,7 @@ function draw() {
         }
     }
     
-    // --- Sonar Chain Visualization & Ripples ---
-    let now = Date.now();
+    // --- Sonar Chain & Shock Triggers ---
     
     // Draw chain reaction lines between consecutive quakes in the last 15 minutes
     for (let i = 0; i < earthquakes.length - 1; i++) {
@@ -1241,7 +1286,6 @@ function draw() {
         let px2 = mapCx + (r2 * Math.sin(angle2)) * scale;
         let py2 = mapCy + (r2 * Math.cos(angle2)) * scale;
         
-        // Opacity fades with age of eq1
         let opacity = Math.max(0.1, 1.0 - (ageMs / 900000));
         
         ctx.beginPath();
@@ -1250,6 +1294,44 @@ function draw() {
         ctx.strokeStyle = `rgba(0, 255, 204, ${opacity})`; // Cyan trail
         ctx.lineWidth = 2;
         ctx.stroke();
+    }
+    
+    // Detect & Draw Shock Triggers (Newer quake within Shock Radius of older M5+)
+    for (let i = 0; i < earthquakes.length; i++) {
+        let newerEq = earthquakes[i];
+        if (now - newerEq.time > 86400000) break; // Only check newer quakes from last 24h
+        
+        for (let j = i + 1; j < earthquakes.length; j++) {
+            let olderEq = earthquakes[j];
+            if (now - olderEq.time > 86400000 * 2) break; // Check older quakes up to 48h
+            
+            if (olderEq.mag >= 5.0) {
+                let distKm = haversineDistance(newerEq.lat, newerEq.lon, olderEq.lat, olderEq.lon);
+                let shockRadius = calculateShockRadius(olderEq.mag);
+                
+                if (distKm <= shockRadius) {
+                    // Trigger detected!
+                    let r1 = ((90.0 - newerEq.lat) / 180.0) * 723.0;
+                    let angle1 = newerEq.lon * Math.PI / 180.0;
+                    let px1 = mapCx + (r1 * Math.sin(angle1)) * scale;
+                    let py1 = mapCy + (r1 * Math.cos(angle1)) * scale;
+                    
+                    let r2 = ((90.0 - olderEq.lat) / 180.0) * 723.0;
+                    let angle2 = olderEq.lon * Math.PI / 180.0;
+                    let px2 = mapCx + (r2 * Math.sin(angle2)) * scale;
+                    let py2 = mapCy + (r2 * Math.cos(angle2)) * scale;
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(px1, py1);
+                    ctx.lineTo(px2, py2);
+                    ctx.strokeStyle = `rgba(255, 0, 0, 0.8)`; // Bright red trigger line
+                    ctx.lineWidth = 3;
+                    ctx.setLineDash([5, 5]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+            }
+        }
     }
     
     // Draw text for the most recent link only
@@ -1419,6 +1501,13 @@ function showEqPopup(eq, screenX, screenY) {
     document.getElementById('eq-popup-age').textContent = formatAge(Date.now() - eq.time);
     document.getElementById('eq-popup-category').textContent = getEqCategory(eq.mag);
     document.getElementById('eq-popup-energy').textContent = getEqEnergy(eq.mag);
+    
+    let shockRadiusText = "N/A";
+    if (eq.mag >= 3.0) {
+        let r = calculateShockRadius(eq.mag);
+        shockRadiusText = r > 20000 ? "GLOBAL" : `~${Math.round(r).toLocaleString()} km`;
+    }
+    document.getElementById('eq-popup-shock').textContent = shockRadiusText;
     
     // Position popup above the clicked point, keep within viewport
     let popupW = 310;
