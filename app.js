@@ -828,7 +828,12 @@ async function fetchHistoricalData() {
         let m5Data = await m5Res.json();
         if (m5Data.features) {
             historicalM5Eqs = m5Data.features.map(f => ({
+                id: f.id,
                 mag: f.properties.mag,
+                depth: f.geometry.coordinates[2],
+                place: f.properties.place,
+                lat: f.geometry.coordinates[1],
+                lon: f.geometry.coordinates[0],
                 time: f.properties.time
             })).sort((a,b) => b.time - a.time);
         }
@@ -842,7 +847,12 @@ async function fetchHistoricalData() {
         let m7Data = await m7Res.json();
         if (m7Data.features) {
             historicalM7Eqs = m7Data.features.map(f => ({
+                id: f.id,
                 mag: f.properties.mag,
+                depth: f.geometry.coordinates[2],
+                place: f.properties.place,
+                lat: f.geometry.coordinates[1],
+                lon: f.geometry.coordinates[0],
                 time: f.properties.time
             })).sort((a,b) => b.time - a.time);
         }
@@ -856,7 +866,12 @@ async function fetchHistoricalData() {
         let m8Data = await m8Res.json();
         if (m8Data.features) {
             historicalM8Eqs = m8Data.features.map(f => ({
+                id: f.id,
                 mag: f.properties.mag,
+                depth: f.geometry.coordinates[2],
+                place: f.properties.place,
+                lat: f.geometry.coordinates[1],
+                lon: f.geometry.coordinates[0],
                 time: f.properties.time
             })).sort((a,b) => b.time - a.time);
         }
@@ -1752,3 +1767,123 @@ document.querySelectorAll('.eq-popup').forEach(popup => {
     }, {passive: true});
     window.addEventListener('touchend', stopDrag);
 });
+
+// ========== Search & Filter Panel Logic ==========
+const searchToggleBtn = document.getElementById('btn-search-toggle');
+const searchPanel = document.getElementById('search-panel');
+const searchInput = document.getElementById('eq-search-input');
+const searchTabs = document.querySelectorAll('.search-tab');
+const searchResultsList = document.getElementById('search-results-list');
+
+let currentSearchMag = 3; // Default
+
+if (searchToggleBtn && searchPanel) {
+    searchToggleBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        searchPanel.classList.toggle('hidden');
+        if (!searchPanel.classList.contains('hidden')) {
+            renderSearchResults();
+            searchInput.focus();
+        }
+    });
+    
+    // Close on click outside
+    document.addEventListener('click', (e) => {
+        if (!searchPanel.classList.contains('hidden') && 
+            !searchPanel.contains(e.target) && 
+            e.target !== searchToggleBtn) {
+            searchPanel.classList.add('hidden');
+        }
+    });
+}
+
+searchTabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+        searchTabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentSearchMag = parseFloat(tab.getAttribute('data-mag'));
+        renderSearchResults();
+    });
+});
+
+if (searchInput) {
+    searchInput.addEventListener('input', () => {
+        renderSearchResults();
+    });
+}
+
+function renderSearchResults() {
+    if (!searchResultsList) return;
+    
+    let allEqs = [];
+    
+    // Combine data based on selected mag
+    if (currentSearchMag < 5) {
+        allEqs = globalMonthEqs || [];
+    } else if (currentSearchMag >= 5 && currentSearchMag < 7) {
+        allEqs = historicalM5Eqs || [];
+    } else if (currentSearchMag >= 7 && currentSearchMag < 8) {
+        allEqs = historicalM7Eqs || [];
+    } else if (currentSearchMag >= 8) {
+        allEqs = historicalM8Eqs || [];
+    }
+    
+    if (allEqs.length === 0) {
+        searchResultsList.innerHTML = '<li>Fetching data... please wait.</li>';
+        return;
+    }
+
+    // Filter by magnitude
+    let filtered = allEqs.filter(eq => eq.mag >= currentSearchMag);
+    
+    // Filter by text search
+    let query = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    if (query) {
+        filtered = filtered.filter(eq => eq.place && eq.place.toLowerCase().includes(query));
+    }
+    
+    // Sort just to be sure
+    filtered.sort((a,b) => b.time - a.time);
+    
+    // Take top 50 max to avoid DOM overload
+    filtered = filtered.slice(0, 50);
+    
+    searchResultsList.innerHTML = '';
+    
+    if (filtered.length === 0) {
+        searchResultsList.innerHTML = '<li>No earthquakes found.</li>';
+        return;
+    }
+    
+    filtered.forEach(eq => {
+        let li = document.createElement('li');
+        let d = new Date(eq.time);
+        let timeStr = d.toISOString().split('T')[0] + " " + d.toISOString().split('T')[1].substring(0,5);
+        let magColor = eq.mag >= 7.0 ? '#ff3333' : (eq.mag >= 5.0 ? '#ff8800' : '#00ffcc');
+        
+        li.innerHTML = `[${timeStr}] <span style="color:${magColor};font-weight:bold;">M${eq.mag.toFixed(1)}</span> - ${eq.place}`;
+        
+        li.addEventListener('click', () => {
+            // Pan to eq
+            offsetX = 0; offsetY = 0; zoom = 10;
+            let targetR = ((90.0 - eq.lat) / 180.0) * 723.0;
+            let targetAngle = eq.lon * Math.PI / 180.0;
+            
+            let scale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
+            let tx = targetR * Math.sin(targetAngle) * scale;
+            let ty = targetR * Math.cos(targetAngle) * scale;
+            
+            offsetX = -tx / zoom;
+            offsetY = -ty / zoom;
+            
+            draw();
+            
+            // Show popup
+            updateEqPopup(eq, window.innerWidth / 2, window.innerHeight / 2);
+            eqPopup.classList.remove('hidden');
+            searchPanel.classList.add('hidden'); // Close panel after click
+        });
+        
+        searchResultsList.appendChild(li);
+    });
+}

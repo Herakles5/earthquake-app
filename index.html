@@ -13,10 +13,30 @@
 </head>
 <body>
     <div id="ui-layer">
+        <div id="header" style="margin-top: 35px; display: flex; align-items: center; gap: 20px;">
+            <div>
+                <h1>LIVE EARTHQUAKES</h1>
+                <div id="status">Fetching data...</div>
+            </div>
+            <button id="btn-search-toggle" class="btn-search">+</button>
         </div>
-        <div id="header" style="margin-top: 35px;">
-            <h1>LIVE EARTHQUAKES</h1>
-            <div id="status">Fetching data...</div>
+
+        <div id="search-panel" class="hidden">
+            <div class="search-panel-header">
+                <input type="text" id="eq-search-input" placeholder="Search region (e.g., California)..." autocomplete="off">
+            </div>
+            <div class="search-tabs">
+                <button class="search-tab active" data-mag="3">M3+</button>
+                <button class="search-tab" data-mag="4">M4+</button>
+                <button class="search-tab" data-mag="5">M5+</button>
+                <button class="search-tab" data-mag="6">M6+</button>
+                <button class="search-tab" data-mag="7">M7+</button>
+                <button class="search-tab" data-mag="8">M8+</button>
+                <button class="search-tab" data-mag="9">M9+</button>
+            </div>
+            <div class="search-results-container">
+                <ul id="search-results-list"></ul>
+            </div>
         </div>
 
     <div id="ticker-container">
@@ -244,6 +264,7 @@
         </div>
     </div>
 
+    </div>
     <canvas id="mapCanvas"></canvas>
 
     <script src="coastlines.js"></script>
