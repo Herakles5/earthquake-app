@@ -21,7 +21,11 @@ let lineExpiryTime = 0;
 let knownEarthquakes = new Set();
 let isInitialLoad = true;
 let audioAllowed = false;
-let autoResetTimeout = null;
+let lastInteractionTime = Date.now();
+let isAutopilotActive = false;
+let autopilotInterval = null;
+let autopilotChain = [];
+let autopilotIndex = 0;
 let predictedNextTime = 0;
 let predictedNextTime24h = 0;
 let predictedNextTimeM4 = 0;
@@ -308,6 +312,7 @@ async function fetchEarthquakes() {
             usgsData.features.forEach(f => {
                 if (f.properties.mag >= 3.0) {
                     rawEarthquakes.push({
+                        id: f.id,
                         mag: f.properties.mag,
                         place: f.properties.place,
                         lon: f.geometry.coordinates[0],
@@ -323,6 +328,7 @@ async function fetchEarthquakes() {
             emscData.features.forEach(f => {
                 if (f.properties.mag >= 3.0) {
                     rawEarthquakes.push({
+                        id: f.properties.unid || f.id || Math.random().toString(),
                         mag: f.properties.mag,
                         place: f.properties.flynn_region,
                         lon: f.geometry.coordinates[0],
@@ -380,7 +386,7 @@ async function fetchEarthquakes() {
             let newQuakeAdded = null;
             
             for (let eq of earthquakes) {
-                let sig = `${eq.lat.toFixed(2)}_${eq.lon.toFixed(2)}_${eq.time}`;
+                let sig = eq.id ? String(eq.id) : `${eq.lat.toFixed(2)}_${eq.lon.toFixed(2)}_${eq.time}`;
                 if (!knownEarthquakes.has(sig)) {
                     knownEarthquakes.add(sig);
                     if (!isInitialLoad) {
@@ -415,16 +421,8 @@ async function fetchEarthquakes() {
                 zoom = 3.5; // Zoom in closer
                 let targetScale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
                 offsetX = -map_x * targetScale;
-                offsetY = -map_y * targetScale;
-                
-                // Auto reset camera after 20 seconds
-                if (autoResetTimeout) clearTimeout(autoResetTimeout);
-                autoResetTimeout = setTimeout(() => {
-                    zoom = 1.0;
-                    offsetX = 0;
-                    offsetY = 0;
-                    autoResetTimeout = null;
-                }, 20000);
+                // Stop autopilot and clear chain when a new real earthquake arrives
+                stopAutopilot(true);
                 
                 // Flash prediction bar to show recalculation
                 let pbar = document.getElementById('prediction-bar');
@@ -1445,7 +1443,44 @@ function draw() {
         }
     }
     ctx.stroke();
-    
+    // Draw Autopilot Chain
+    if (autopilotChain.length > 1 && autopilotIndex > 0) {
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(255, 50, 50, 0.9)";
+        ctx.lineWidth = 3.0;
+        ctx.setLineDash([5, 5]);
+        
+        let validNodes = Math.min(autopilotIndex, autopilotChain.length - 1);
+        for (let i = 0; i <= validNodes; i++) {
+            let eq = autopilotChain[i];
+            let r = ((90.0 - eq.lat) / 180.0) * 723.0;
+            let a = eq.lon * Math.PI / 180.0;
+            let px = mapCx + (r * Math.sin(a)) * scale;
+            let py = mapCy + (r * Math.cos(a)) * scale;
+            
+            if (i === 0) ctx.moveTo(px, py);
+            else ctx.lineTo(px, py);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+        
+        for (let i = 0; i <= validNodes; i++) {
+            let eq = autopilotChain[i];
+            let r = ((90.0 - eq.lat) / 180.0) * 723.0;
+            let a = eq.lon * Math.PI / 180.0;
+            let px = mapCx + (r * Math.sin(a)) * scale;
+            let py = mapCy + (r * Math.cos(a)) * scale;
+            
+            ctx.beginPath();
+            ctx.arc(px, py, 5, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(255, 0, 0, 1)";
+            ctx.fill();
+            ctx.strokeStyle = "white";
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+        }
+    }
+
     requestAnimationFrame(draw);
 }
 draw();
@@ -1565,14 +1600,9 @@ function selectEqFromList(eq) {
     offsetX = -map_x * targetScale;
     offsetY = -map_y * targetScale;
     
-    // Auto reset camera after 20 seconds
-    if (autoResetTimeout) clearTimeout(autoResetTimeout);
-    autoResetTimeout = setTimeout(() => {
-        zoom = 1.0;
-        offsetX = 0;
-        offsetY = 0;
-        autoResetTimeout = null;
-    }, 20000);
+    //    offsetY = -map_y * targetScale;
+    
+    stopAutopilot(true);
     
     showEqPopup(eq, width / 2, height / 2);
 }
@@ -1887,3 +1917,79 @@ function renderSearchResults() {
         searchResultsList.appendChild(li);
     });
 }
+
+// ========== Cinematic Autopilot (Pattern Discovery) ==========
+
+function resetIdleTimer() {
+    lastInteractionTime = Date.now();
+    if (isAutopilotActive) {
+        stopAutopilot();
+    }
+}
+
+// Listen to interactions
+window.addEventListener('mousemove', resetIdleTimer);
+window.addEventListener('mousedown', resetIdleTimer);
+window.addEventListener('touchstart', resetIdleTimer, {passive: true});
+window.addEventListener('keydown', resetIdleTimer);
+window.addEventListener('wheel', resetIdleTimer, {passive: true});
+
+function stopAutopilot(clearChain = false) {
+    isAutopilotActive = false;
+    if (clearChain) {
+        autopilotChain = [];
+        autopilotIndex = 0;
+    }
+    if (autopilotInterval) clearInterval(autopilotInterval);
+    autopilotInterval = null;
+    if (eqPopup) eqPopup.classList.add('hidden');
+    draw(); // update map
+}
+
+function startAutopilot() {
+    if (isAutopilotActive || earthquakes.length === 0) return;
+    isAutopilotActive = true;
+    
+    // Get last 10 quakes, reverse to go oldest -> newest
+    autopilotChain = earthquakes.slice(0, 10).reverse();
+    autopilotIndex = 0;
+    
+    function nextAutopilotStep() {
+        if (!isAutopilotActive) return;
+        
+        if (autopilotIndex >= autopilotChain.length) {
+            // Finished sequence. Stop interval, but keep isAutopilotActive = true 
+            // so the idle timer doesn't immediately restart it.
+            if (autopilotInterval) clearInterval(autopilotInterval);
+            autopilotInterval = null;
+            return;
+        }
+        
+        let targetEq = autopilotChain[autopilotIndex];
+        
+        // Pan to targetEq (ohne zoom modification)
+        let targetR = ((90.0 - targetEq.lat) / 180.0) * 723.0;
+        let targetAngle = targetEq.lon * Math.PI / 180.0;
+        
+        let targetScale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
+        offsetX = -(targetR * Math.sin(targetAngle)) * targetScale;
+        offsetY = -(targetR * Math.cos(targetAngle)) * targetScale;
+        
+        draw();
+        
+        // Show popup
+        showEqPopup(targetEq, window.innerWidth / 2, window.innerHeight / 2);
+        
+        autopilotIndex++;
+    }
+    
+    nextAutopilotStep();
+    autopilotInterval = setInterval(nextAutopilotStep, 6000); // 6 seconds per quake
+}
+
+// Idle checker
+setInterval(() => {
+    if (Date.now() - lastInteractionTime > 120000 && !isAutopilotActive) {
+        startAutopilot();
+    }
+}, 5000);
