@@ -1912,6 +1912,7 @@ function renderSearchResults() {
     
     filtered.forEach(eq => {
         let li = document.createElement('li');
+        li.id = 'eq-list-item-' + eq.id;
         let d = new Date(eq.time);
         let timeStr = d.toISOString().split('T')[0] + " " + d.toISOString().split('T')[1].substring(0,5);
         let magColor = eq.mag >= 7.0 ? '#ff3333' : (eq.mag >= 5.0 ? '#ff8800' : '#00ffcc');
@@ -1972,8 +1973,8 @@ function startAutopilot() {
     if (isAutopilotActive || earthquakes.length === 0) return;
     isAutopilotActive = true;
     
-    // Get last 6 quakes to prevent canvas rendering lag, reverse to go oldest -> newest
-    autopilotChain = earthquakes.slice(0, 6).reverse();
+    // Get last 10 quakes, reverse to go oldest -> newest
+    autopilotChain = earthquakes.slice(0, 10).reverse();
     autopilotIndex = 0;
     
     function nextAutopilotStep() {
@@ -1999,6 +2000,14 @@ function startAutopilot() {
         
         // Show popup
         showEqPopup(targetEq, window.innerWidth / 2, window.innerHeight / 2);
+        
+        // Highlight in list
+        document.querySelectorAll('#search-results-list li').forEach(li => li.classList.remove('active'));
+        let activeLi = document.getElementById('eq-list-item-' + targetEq.id);
+        if (activeLi) {
+            activeLi.classList.add('active');
+            activeLi.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
         
         autopilotIndex++;
     }
