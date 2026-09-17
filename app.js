@@ -1910,14 +1910,14 @@ function renderSearchResults() {
         return;
     }
     
-    filtered.forEach(eq => {
+    filtered.forEach((eq, index) => {
         let li = document.createElement('li');
         li.id = 'eq-list-item-' + eq.id;
         let d = new Date(eq.time);
         let timeStr = d.toISOString().split('T')[0] + " " + d.toISOString().split('T')[1].substring(0,5);
         let magColor = eq.mag >= 7.0 ? '#ff3333' : (eq.mag >= 5.0 ? '#ff8800' : '#00ffcc');
         
-        li.innerHTML = `[${timeStr}] <span style="color:${magColor};font-weight:bold;">M${eq.mag.toFixed(1)}</span> - ${eq.place}`;
+        li.innerHTML = `<span style="color:#888; font-weight:bold; margin-right:5px;">#${index + 1}</span> [${timeStr}] <span style="color:${magColor};font-weight:bold;">M${eq.mag.toFixed(1)}</span> - ${eq.place}`;
         
         li.addEventListener('click', () => {
             // Pan to eq
