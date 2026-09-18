@@ -24,6 +24,7 @@ let audioAllowed = false;
 let lastInteractionTime = Date.now();
 let isAutopilotActive = false;
 let autopilotInterval = null;
+let autopilotTimeout = null;
 let autopilotChain = [];
 let autopilotIndex = 0;
 let predictedNextTime = 0;
@@ -1982,6 +1983,8 @@ document.querySelectorAll('.eq-popup').forEach(popup => {
         // Verhindert, dass CSS-Transforms die Positionierung stören
         popup.style.transform = 'none'; 
         popup.style.margin = '0';
+        popup.style.bottom = 'auto';
+        popup.style.right = 'auto';
     };
 
     const onDrag = (clientX, clientY) => {
@@ -2156,6 +2159,8 @@ function stopAutopilot(clearChain = false) {
     }
     if (autopilotInterval) clearInterval(autopilotInterval);
     autopilotInterval = null;
+    if (autopilotTimeout) clearTimeout(autopilotTimeout);
+    autopilotTimeout = null;
     if (eqPopup) eqPopup.classList.add('hidden');
 }
 
@@ -2175,6 +2180,22 @@ function startAutopilot() {
             // so the idle timer doesn't immediately restart it.
             if (autopilotInterval) clearInterval(autopilotInterval);
             autopilotInterval = null;
+            
+            autopilotTimeout = setTimeout(() => {
+                if (!isAutopilotActive) return;
+                
+                // Recenter without changing zoom
+                offsetX = 0;
+                offsetY = 0;
+                
+                if (eqPopup) eqPopup.classList.add('hidden');
+                document.querySelectorAll('#search-results-list li, #eq-list li').forEach(li => li.classList.remove('active'));
+                
+                isAutopilotActive = false;
+                lastInteractionTime = Date.now();
+                autopilotTimeout = null;
+            }, 10000);
+            
             return;
         }
         
