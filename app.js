@@ -1158,12 +1158,14 @@ function updateGaiaPopup() {
         return Array.from(map.values()).sort((a,b) => b.time - a.time);
     };
     
-    let combinedM5 = mergeEqs(globalMonthEqs, historicalM5Eqs);
-    let combinedM7 = mergeEqs(globalMonthEqs, historicalM7Eqs);
-    let combinedM8 = mergeEqs(globalMonthEqs, historicalM8Eqs);
+    let combinedAll = mergeEqs(globalMonthEqs, earthquakes);
     
-    let m3Stats = calcRhythm(globalMonthEqs, 3.0);
-    let m4Stats = calcRhythm(globalMonthEqs, 4.0);
+    let combinedM5 = mergeEqs(combinedAll, historicalM5Eqs);
+    let combinedM7 = mergeEqs(combinedAll, historicalM7Eqs);
+    let combinedM8 = mergeEqs(combinedAll, historicalM8Eqs);
+    
+    let m3Stats = calcRhythm(combinedAll, 3.0);
+    let m4Stats = calcRhythm(combinedAll, 4.0);
     let m5Stats = calcRhythm(combinedM5, 5.0);
     let m6Stats = calcRhythm(combinedM5, 6.0);
     let m7Stats = calcRhythm(combinedM7, 7.0);
