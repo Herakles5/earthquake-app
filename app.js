@@ -467,10 +467,12 @@ async function fetchEarthquakes() {
         let pSW = getQuadrantAvg(sw), pSE = getQuadrantAvg(se);
         
         let validPreds = [pNW, pNE, pSW, pSE].filter(p => p !== null);
-        if (validPreds.length > 0) {
-            predictedNextTime = Math.max(...validPreds); // Take the maximum predicted time
-        } else if (earthquakes.length >= 5) {
-            predictedNextTime = getQuadrantAvg(earthquakes); // Fallback
+        
+        // Use strictly the global short-term stats to match the Region display
+        if (earthquakes.length >= 5) {
+            predictedNextTime = getQuadrantAvg(earthquakes);
+        } else if (validPreds.length > 0) {
+            predictedNextTime = Math.max(...validPreds);
         }
         
         // Calculate Hemisphere Stats (24H)
@@ -502,10 +504,12 @@ async function fetchEarthquakes() {
         let pSW_M4 = getQuadrantAvg(swM4), pSE_M4 = getQuadrantAvg(seM4);
         
         let validPredsM4 = [pNW_M4, pNE_M4, pSW_M4, pSE_M4].filter(p => p !== null);
-        if (validPredsM4.length > 0) {
-            predictedNextTimeM4 = Math.max(...validPredsM4);
-        } else if (eqsM4.length >= 5) {
+        
+        // Use strictly the global short-term stats to match the Region display
+        if (eqsM4.length >= 5) {
             predictedNextTimeM4 = getQuadrantAvg(eqsM4);
+        } else if (validPredsM4.length > 0) {
+            predictedNextTimeM4 = Math.max(...validPredsM4);
         }
         
         if (eqsM4.length > 1) {
