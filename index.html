@@ -246,8 +246,9 @@
         <div class="eq-popup-body">
             <div class="eq-popup-place" style="margin-bottom: 12px; font-weight: normal; color: #ddd; font-size: 12px; line-height: 1.4;">
                 The Earth behaves like a pregnant woman (Gaia) in labor. Foreshocks build up energy before releasing it. 
-                This system <b>autonomously</b> fetches up to 5 years of historical data to dynamically calculate the unique rhythm (contraction frequency) of each earthquake magnitude class. 
-                By comparing the time since the last discharge to the historical rhythm, it predicts the imminence of the next event.
+                This system <b>autonomously</b> fetches up to 20 years of historical data to dynamically calculate the unique rhythm (contraction frequency) of each earthquake magnitude class. 
+                Uses <b>Median + Exponential Moving Average</b> blending for robustness against aftershock clusters, with <b>Poisson probability</b> modeling and <b>confidence intervals</b> based on standard deviation.
+                Hover over any row to see the last event's details.
             </div>
             <div class="eq-popup-stats" id="gaia-popup-stats">
                 <!-- Filled dynamically by JS -->

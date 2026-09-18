@@ -77,9 +77,80 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 function calculateShockRadius(mag) {
-    // Formula: 100 * 3^(Mag - 3)
     if (mag < 3) return 0;
     return 100 * Math.pow(3, (mag - 3));
+}
+
+// --- Advanced Statistical Functions ---
+function median(arr) {
+    if (arr.length === 0) return 0;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function trimmedMean(arr, trimPercent = 0.1) {
+    if (arr.length < 4) return arr.reduce((a, b) => a + b, 0) / arr.length;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const trimCount = Math.max(1, Math.floor(sorted.length * trimPercent));
+    const trimmed = sorted.slice(trimCount, sorted.length - trimCount);
+    return trimmed.reduce((a, b) => a + b, 0) / trimmed.length;
+}
+
+function exponentialWeightedAvg(gaps, alpha = 0.3) {
+    if (gaps.length === 0) return 0;
+    let ema = gaps[0];
+    for (let i = 1; i < gaps.length; i++) {
+        ema = alpha * gaps[i] + (1 - alpha) * ema;
+    }
+    return ema;
+}
+
+function stdDev(arr) {
+    if (arr.length < 2) return 0;
+    const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+    const sqDiffs = arr.map(v => (v - avg) ** 2);
+    return Math.sqrt(sqDiffs.reduce((a, b) => a + b, 0) / arr.length);
+}
+
+function poissonProbability(avgGapMs, timeSinceLast) {
+    // P(at least 1 event in elapsed time) = 1 - e^(-λ*t)
+    if (avgGapMs <= 0) return 0;
+    const lambda = 1.0 / avgGapMs;
+    return Math.min(0.99, 1.0 - Math.exp(-lambda * timeSinceLast));
+}
+
+function clusterEvents(eqs, timeThresholdMs = 1800000, distThresholdKm = 100) {
+    // Group aftershocks/swarms into single events, keep strongest per cluster
+    if (eqs.length === 0) return [];
+    let clustered = [];
+    let used = new Set();
+    for (let i = 0; i < eqs.length; i++) {
+        if (used.has(i)) continue;
+        let best = eqs[i];
+        for (let j = i + 1; j < eqs.length; j++) {
+            if (used.has(j)) continue;
+            if (Math.abs(eqs[i].time - eqs[j].time) < timeThresholdMs) {
+                let dist = (eqs[i].lat !== undefined && eqs[j].lat !== undefined)
+                    ? haversineDistance(eqs[i].lat, eqs[i].lon, eqs[j].lat, eqs[j].lon)
+                    : 0;
+                if (dist < distThresholdKm) {
+                    used.add(j);
+                    if (eqs[j].mag > best.mag) best = eqs[j];
+                }
+            }
+        }
+        clustered.push(best);
+    }
+    return clustered;
+}
+
+function computeGaps(eqs) {
+    let gaps = [];
+    for (let i = 0; i < eqs.length - 1; i++) {
+        gaps.push(Math.abs(eqs[i].time - eqs[i + 1].time));
+    }
+    return gaps;
 }
 
 function updatePrediction() {
@@ -443,39 +514,32 @@ async function fetchEarthquakes() {
             isInitialLoad = false;
         }
         
-        // --- Quadrant-based Predictions (NW, NE, SW, SE) ---
-        let getQuadrantAvg = (eqList) => {
-            if (eqList.length < 5) return null;
-            let totalDiff = 0, count = 0;
-            for (let i = 0; i < Math.min(10, eqList.length - 1); i++) {
-                let diff = Math.abs(eqList[i].time - eqList[i+1].time);
-                if (diff < 36000000) { // ignore diffs > 10h
-                    totalDiff += diff;
-                    count++;
-                }
-            }
-            if (count > 0) return eqList[0].time + (totalDiff / count);
-            return null;
+        // --- Smart Prediction (Cluster-aware, Median-based) ---
+        let getSmartPrediction = (eqList) => {
+            if (eqList.length < 3) return null;
+            // Cluster nearby events to avoid aftershock bias
+            let clustered = clusterEvents(eqList.slice(0, 20));
+            if (clustered.length < 3) clustered = eqList.slice(0, 10);
+            let gaps = computeGaps(clustered);
+            if (gaps.length === 0) return null;
+            // Use median for robustness, EMA for recency
+            let medGap = median(gaps);
+            let emaGap = exponentialWeightedAvg(gaps, 0.35);
+            // Blend: 60% median (stable), 40% EMA (reactive)
+            let blendedGap = medGap * 0.6 + emaGap * 0.4;
+            return eqList[0].time + blendedGap;
         };
 
+        // Short-term prediction using smart method
+        if (earthquakes.length >= 3) {
+            predictedNextTime = getSmartPrediction(earthquakes);
+        }
+        
+        // Calculate Hemisphere Stats (24H)
         let nw = earthquakes.filter(eq => eq.lat >= 0 && eq.lon < 0);
         let ne = earthquakes.filter(eq => eq.lat >= 0 && eq.lon >= 0);
         let sw = earthquakes.filter(eq => eq.lat < 0 && eq.lon < 0);
         let se = earthquakes.filter(eq => eq.lat < 0 && eq.lon >= 0);
-        
-        let pNW = getQuadrantAvg(nw), pNE = getQuadrantAvg(ne);
-        let pSW = getQuadrantAvg(sw), pSE = getQuadrantAvg(se);
-        
-        let validPreds = [pNW, pNE, pSW, pSE].filter(p => p !== null);
-        
-        // Use strictly the global short-term stats to match the Region display
-        if (earthquakes.length >= 5) {
-            predictedNextTime = getQuadrantAvg(earthquakes);
-        } else if (validPreds.length > 0) {
-            predictedNextTime = Math.max(...validPreds);
-        }
-        
-        // Calculate Hemisphere Stats (24H)
         let nsElem = document.getElementById('stat-hemi-ns');
         let ewElem = document.getElementById('stat-hemi-ew');
         if (nsElem && ewElem) {
@@ -483,43 +547,29 @@ async function fetchEarthquakes() {
             ewElem.textContent = `${ne.length + se.length} vs ${nw.length + sw.length}`;
         }
         
-        // Calculate global 24h average
-        if (earthquakes.length > 1) {
-            let oldest = earthquakes[earthquakes.length - 1].time;
-            let newest = earthquakes[0].time;
-            let timeSpan = newest - oldest;
-            if (timeSpan > 0) {
-                let globalAvgDiff = timeSpan / (earthquakes.length - 1);
-                predictedNextTime24h = earthquakes[0].time + globalAvgDiff;
-            }
+        // Global 24h prediction (median-based)
+        if (earthquakes.length > 2) {
+            let gaps24 = computeGaps(earthquakes);
+            let medGap24 = median(gaps24);
+            let emaGap24 = exponentialWeightedAvg(gaps24, 0.3);
+            let blended24 = medGap24 * 0.6 + emaGap24 * 0.4;
+            predictedNextTime24h = earthquakes[0].time + blended24;
         }
         
         let eqsM4 = earthquakes.filter(eq => eq.mag >= 4.0);
-        let nwM4 = eqsM4.filter(eq => eq.lat >= 0 && eq.lon < 0);
-        let neM4 = eqsM4.filter(eq => eq.lat >= 0 && eq.lon >= 0);
-        let swM4 = eqsM4.filter(eq => eq.lat < 0 && eq.lon < 0);
-        let seM4 = eqsM4.filter(eq => eq.lat < 0 && eq.lon >= 0);
         
-        let pNW_M4 = getQuadrantAvg(nwM4), pNE_M4 = getQuadrantAvg(neM4);
-        let pSW_M4 = getQuadrantAvg(swM4), pSE_M4 = getQuadrantAvg(seM4);
-        
-        let validPredsM4 = [pNW_M4, pNE_M4, pSW_M4, pSE_M4].filter(p => p !== null);
-        
-        // Use strictly the global short-term stats to match the Region display
-        if (eqsM4.length >= 5) {
-            predictedNextTimeM4 = getQuadrantAvg(eqsM4);
-        } else if (validPredsM4.length > 0) {
-            predictedNextTimeM4 = Math.max(...validPredsM4);
+        // M4+ short-term (smart prediction)
+        if (eqsM4.length >= 3) {
+            predictedNextTimeM4 = getSmartPrediction(eqsM4);
         }
         
-        if (eqsM4.length > 1) {
-            let oldest = eqsM4[eqsM4.length - 1].time;
-            let newest = eqsM4[0].time;
-            let timeSpan = newest - oldest;
-            if (timeSpan > 0) {
-                let globalAvgDiff = timeSpan / (eqsM4.length - 1);
-                predictedNextTime24hM4 = eqsM4[0].time + globalAvgDiff;
-            }
+        // M4+ global 24h (median-based)
+        if (eqsM4.length > 2) {
+            let gapsM4 = computeGaps(eqsM4);
+            let medGapM4 = median(gapsM4);
+            let emaGapM4 = exponentialWeightedAvg(gapsM4, 0.3);
+            let blendedM4 = medGapM4 * 0.6 + emaGapM4 * 0.4;
+            predictedNextTime24hM4 = eqsM4[0].time + blendedM4;
         }
         
         // Calculate predicted region
@@ -710,9 +760,12 @@ async function fetchLongTermStats() {
             dataMonth.features.forEach(f => {
                 if (f.properties.mag >= 3.0) {
                     monthEqs.push({
+                        id: f.id,
                         mag: f.properties.mag,
                         place: f.properties.place,
                         depth: f.geometry.coordinates[2] || 0,
+                        lat: f.geometry.coordinates[1],
+                        lon: f.geometry.coordinates[0],
                         time: f.properties.time
                     });
                 }
@@ -730,8 +783,12 @@ async function fetchLongTermStats() {
         let calculateStats = (eqArray) => {
             if (eqArray.length < 2) return { count: 0, avgMs: 0, region: 'N/A', mag5: 0, mag7: 0, deep: 0, mag5AvgMs: 0, mag7AvgMs: 0, deepAvgMs: 0, mag5Last: 0, mag7Last: 0, deepLast: 0 };
             let count = eqArray.length;
-            let timeSpan = eqArray[0].time - eqArray[eqArray.length - 1].time;
-            let avgMs = timeSpan / (count - 1);
+            
+            // Use median of gaps instead of simple division
+            let allGaps = computeGaps(eqArray);
+            let medianGap = median(allGaps);
+            let emaGap = exponentialWeightedAvg(allGaps, 0.3);
+            let avgMs = medianGap * 0.6 + emaGap * 0.4; // Blended
             
             let regionCounts = {};
             let maxCount = 0;
@@ -741,20 +798,17 @@ async function fetchLongTermStats() {
             let mag7Eqs = eqArray.filter(eq => eq.mag >= 7.0);
             let deepEqs = eqArray.filter(eq => eq.depth >= 150.0);
             
-            let mag5AvgMs = 0;
-            if (mag5Eqs.length >= 2) {
-                mag5AvgMs = (mag5Eqs[0].time - mag5Eqs[mag5Eqs.length - 1].time) / (mag5Eqs.length - 1);
-            }
+            let calcSubAvg = (subEqs) => {
+                if (subEqs.length < 2) return 0;
+                let subGaps = computeGaps(subEqs);
+                let med = median(subGaps);
+                let ema = exponentialWeightedAvg(subGaps, 0.3);
+                return med * 0.6 + ema * 0.4;
+            };
             
-            let mag7AvgMs = 0;
-            if (mag7Eqs.length >= 2) {
-                mag7AvgMs = (mag7Eqs[0].time - mag7Eqs[mag7Eqs.length - 1].time) / (mag7Eqs.length - 1);
-            }
-
-            let deepAvgMs = 0;
-            if (deepEqs.length >= 2) {
-                deepAvgMs = (deepEqs[0].time - deepEqs[deepEqs.length - 1].time) / (deepEqs.length - 1);
-            }
+            let mag5AvgMs = calcSubAvg(mag5Eqs);
+            let mag7AvgMs = calcSubAvg(mag7Eqs);
+            let deepAvgMs = calcSubAvg(deepEqs);
             
             eqArray.forEach(eq => {
                 let cleanR = eq.place;
@@ -891,62 +945,138 @@ fetchHistoricalData();
 function drawGaiaDiagram() {
     if (!gaiaCanvas || !gaiaCtx || !gaiaContainer) return;
     
-    // Resize canvas to match container
     const rect = gaiaContainer.getBoundingClientRect();
-    gaiaCanvas.width = rect.width - 30; // padding
-    gaiaCanvas.height = 40;
+    gaiaCanvas.width = rect.width - 30;
+    gaiaCanvas.height = 80;
     
     gaiaCtx.clearRect(0, 0, gaiaCanvas.width, gaiaCanvas.height);
     
     if (!globalMonthEqs || globalMonthEqs.length === 0) return;
     
     let now = Date.now();
-    let timeSpan = 144 * 3600000; // 144 hours
+    let timeSpan = 144 * 3600000;
     let cutoff = now - timeSpan;
     
     let relevantEqs = globalMonthEqs.filter(eq => eq.time >= cutoff);
     if (relevantEqs.length === 0) return;
     
-    let padding = 10;
-    let chartW = gaiaCanvas.width - (padding * 2);
+    let padding = 30;
+    let paddingR = 10;
+    let chartW = gaiaCanvas.width - padding - paddingR;
+    let chartH = gaiaCanvas.height - 12;
     
-    // Draw baseline
+    // Background gradient
+    let bgGrad = gaiaCtx.createLinearGradient(0, 0, 0, gaiaCanvas.height);
+    bgGrad.addColorStop(0, 'rgba(80, 0, 120, 0.15)');
+    bgGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    gaiaCtx.fillStyle = bgGrad;
+    gaiaCtx.fillRect(0, 0, gaiaCanvas.width, gaiaCanvas.height);
+    
+    // Y-axis magnitude labels
+    gaiaCtx.font = '8px monospace';
+    gaiaCtx.fillStyle = 'rgba(255,255,255,0.35)';
+    gaiaCtx.textAlign = 'right';
+    [3, 5, 7].forEach(m => {
+        let y = gaiaCanvas.height - 2 - ((m - 2.5) / 6.5) * chartH;
+        if (y > 8) {
+            gaiaCtx.fillText('M' + m, padding - 4, y + 3);
+            gaiaCtx.beginPath();
+            gaiaCtx.moveTo(padding, y);
+            gaiaCtx.lineTo(gaiaCanvas.width - paddingR, y);
+            gaiaCtx.strokeStyle = 'rgba(255,255,255,0.06)';
+            gaiaCtx.lineWidth = 0.5;
+            gaiaCtx.stroke();
+        }
+    });
+    
+    // X-axis time markers (every 24h)
+    gaiaCtx.textAlign = 'center';
+    gaiaCtx.fillStyle = 'rgba(255,255,255,0.3)';
+    gaiaCtx.font = '7px monospace';
+    for (let h = 24; h <= 144; h += 24) {
+        let x = padding + ((timeSpan - h * 3600000) / timeSpan) * chartW;
+        gaiaCtx.beginPath();
+        gaiaCtx.moveTo(x, 0);
+        gaiaCtx.lineTo(x, gaiaCanvas.height - 1);
+        gaiaCtx.strokeStyle = 'rgba(255,255,255,0.08)';
+        gaiaCtx.lineWidth = 0.5;
+        gaiaCtx.stroke();
+        gaiaCtx.fillText(`-${h}h`, x, gaiaCanvas.height - 1);
+    }
+    
+    // Baseline
     gaiaCtx.beginPath();
-    gaiaCtx.moveTo(padding, gaiaCanvas.height - 1);
-    gaiaCtx.lineTo(gaiaCanvas.width - padding, gaiaCanvas.height - 1);
-    gaiaCtx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+    gaiaCtx.moveTo(padding, gaiaCanvas.height - 2);
+    gaiaCtx.lineTo(gaiaCanvas.width - paddingR, gaiaCanvas.height - 2);
+    gaiaCtx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
     gaiaCtx.lineWidth = 1;
     gaiaCtx.stroke();
     
-    // Draw stem plot for each quake
+    // Trend line (moving average)
+    let sortedByTime = [...relevantEqs].sort((a, b) => a.time - b.time);
+    if (sortedByTime.length > 5) {
+        gaiaCtx.beginPath();
+        let windowSize = Math.max(3, Math.floor(sortedByTime.length / 8));
+        let first = true;
+        for (let i = windowSize; i < sortedByTime.length; i++) {
+            let windowEqs = sortedByTime.slice(i - windowSize, i);
+            let avgMag = windowEqs.reduce((s, e) => s + e.mag, 0) / windowEqs.length;
+            let avgTime = windowEqs.reduce((s, e) => s + e.time, 0) / windowEqs.length;
+            let x = padding + ((avgTime - cutoff) / timeSpan) * chartW;
+            let height = Math.max(2, ((avgMag - 2.5) / 6.5) * chartH);
+            let y = gaiaCanvas.height - 2 - height;
+            if (first) { gaiaCtx.moveTo(x, y); first = false; }
+            else gaiaCtx.lineTo(x, y);
+        }
+        gaiaCtx.strokeStyle = 'rgba(255, 51, 255, 0.4)';
+        gaiaCtx.lineWidth = 1.5;
+        gaiaCtx.stroke();
+    }
+    
+    // Draw stems with glow for M5+
     relevantEqs.forEach(eq => {
         let timeDiff = eq.time - cutoff;
         let x = padding + (timeDiff / timeSpan) * chartW;
         
-        let height = Math.max(3, (eq.mag - 2.5) * 8); // Scale magnitude to height
-        if (height > gaiaCanvas.height - 5) height = gaiaCanvas.height - 5;
+        let height = Math.max(3, ((eq.mag - 2.5) / 6.5) * chartH);
+        if (height > chartH) height = chartH;
         
         let magColor = '#c8c800';
-        if (eq.mag >= 5.0) magColor = '#ff3333';
+        if (eq.mag >= 7.0) magColor = '#ff33ff';
+        else if (eq.mag >= 5.0) magColor = '#ff3333';
         else if (eq.mag >= 4.0) magColor = '#ff8800';
         else if (eq.mag >= 3.5) magColor = '#00ffcc';
         
-        // draw stem
+        // Glow for M5+
+        if (eq.mag >= 5.0) {
+            gaiaCtx.save();
+            gaiaCtx.shadowColor = magColor;
+            gaiaCtx.shadowBlur = 6;
+            gaiaCtx.beginPath();
+            gaiaCtx.arc(x, gaiaCanvas.height - 2 - height, 2.5, 0, 2 * Math.PI);
+            gaiaCtx.fillStyle = magColor;
+            gaiaCtx.globalAlpha = 0.9;
+            gaiaCtx.fill();
+            gaiaCtx.restore();
+        }
+        
+        // Stem
         gaiaCtx.beginPath();
-        gaiaCtx.moveTo(x, gaiaCanvas.height - 1);
-        gaiaCtx.lineTo(x, gaiaCanvas.height - 1 - height);
+        gaiaCtx.moveTo(x, gaiaCanvas.height - 2);
+        gaiaCtx.lineTo(x, gaiaCanvas.height - 2 - height);
         gaiaCtx.strokeStyle = magColor;
-        gaiaCtx.lineWidth = 1.5;
+        gaiaCtx.lineWidth = eq.mag >= 5.0 ? 2 : 1.5;
         gaiaCtx.globalAlpha = 0.8;
         gaiaCtx.stroke();
         
-        // draw dot on top
+        // Dot
         gaiaCtx.beginPath();
-        gaiaCtx.arc(x, gaiaCanvas.height - 1 - height, 1.5, 0, 2 * Math.PI);
+        gaiaCtx.arc(x, gaiaCanvas.height - 2 - height, eq.mag >= 5.0 ? 2.5 : 1.5, 0, 2 * Math.PI);
         gaiaCtx.fillStyle = magColor;
         gaiaCtx.globalAlpha = 1.0;
         gaiaCtx.fill();
     });
+    gaiaCtx.globalAlpha = 1.0;
 }
 
 function updateGaiaPopup() {
@@ -969,30 +1099,49 @@ function updateGaiaPopup() {
         let filtered = eqArray.filter(e => e.mag >= minMag);
         if (filtered.length < 2) return null;
         
-        let lastEqTime = filtered[0].time;
-        let timeSinceLast = now - lastEqTime;
+        let lastEq = filtered[0];
+        let timeSinceLast = now - lastEq.time;
         
-        // Calculate average gap
-        let gaps = [];
-        for (let i = 0; i < filtered.length - 1; i++) {
-            gaps.push(filtered[i].time - filtered[i+1].time);
-        }
-        let avgGapMs = gaps.reduce((a,b)=>a+b, 0) / gaps.length;
+        // Compute gaps and use advanced statistics
+        let gaps = computeGaps(filtered);
+        let medGap = median(gaps);
+        let emaGap = exponentialWeightedAvg(gaps, 0.3);
+        let avgGapMs = medGap * 0.6 + emaGap * 0.4; // Blended
+        let sigma = stdDev(gaps);
         
-        let isOverdue = timeSinceLast > avgGapMs;
+        // Confidence: low sigma relative to avg = high confidence
+        let cv = avgGapMs > 0 ? sigma / avgGapMs : 1; // Coefficient of variation
+        let confidence = cv < 0.3 ? 'High' : cv < 0.6 ? 'Medium' : 'Low';
+        let confidenceColor = cv < 0.3 ? '#00ff88' : cv < 0.6 ? '#ff8800' : '#888';
+        
+        // Poisson probability
+        let prob = poissonProbability(avgGapMs, timeSinceLast);
+        let probPercent = Math.round(prob * 100);
+        
+        // 6-level status system
         let ratio = timeSinceLast / avgGapMs;
-        let status = "Resting Phase";
-        let statusColor = "#00ffcc";
+        let status, statusColor;
+        if (ratio < 0.3)       { status = 'Just Released';    statusColor = '#00ffcc'; }
+        else if (ratio < 0.7)  { status = 'Resting Phase';    statusColor = '#00ff88'; }
+        else if (ratio < 0.9)  { status = 'Building Energy';  statusColor = '#ff8800'; }
+        else if (ratio < 1.0)  { status = 'Building Peak';    statusColor = '#ff33ff'; }
+        else if (ratio < 1.5)  { status = 'Overdue';          statusColor = '#ff3333'; }
+        else                   { status = 'Critical Overdue'; statusColor = '#ff0000'; }
         
-        if (ratio > 1.2) { status = "Overdue (Imminent)"; statusColor = "#ff3333"; }
-        else if (ratio > 0.9) { status = "Building Peak"; statusColor = "#ff33ff"; }
-        else if (ratio > 0.6) { status = "Building Energy"; statusColor = "#ff8800"; }
+        // Last event info
+        let lastPlace = lastEq.place || 'Unknown';
+        if (lastPlace.length > 30) lastPlace = lastPlace.substring(0, 28) + '…';
         
         return {
             avgStr: formatDur(avgGapMs),
             lastStr: formatDur(timeSinceLast),
-            status: status,
-            color: statusColor
+            status, color: statusColor,
+            ratio, probPercent,
+            confidence, confidenceColor,
+            sigmaStr: '±' + formatDur(sigma),
+            lastMag: lastEq.mag.toFixed(1),
+            lastPlace,
+            count: filtered.length
         };
     };
     
@@ -1013,48 +1162,79 @@ function updateGaiaPopup() {
     let combinedM7 = mergeEqs(globalMonthEqs, historicalM7Eqs);
     let combinedM8 = mergeEqs(globalMonthEqs, historicalM8Eqs);
     
+    let m3Stats = calcRhythm(globalMonthEqs, 3.0);
     let m4Stats = calcRhythm(globalMonthEqs, 4.0);
     let m5Stats = calcRhythm(combinedM5, 5.0);
     let m6Stats = calcRhythm(combinedM5, 6.0);
     let m7Stats = calcRhythm(combinedM7, 7.0);
     let m8Stats = calcRhythm(combinedM8, 8.0);
     
-    let html = `<table style="width:100%; border-collapse: collapse; text-align: left; font-size: 13px;">
-        <tr style="border-bottom: 1px solid rgba(255,255,255,0.2); color:#aaa;">
-            <th style="padding: 5px 0;">Class</th>
-            <th style="padding: 5px 0;">Historical Rhythm</th>
-            <th style="padding: 5px 0;">Time Since Last</th>
-            <th style="padding: 5px 0;">Status</th>
+    let html = `<table style="width:100%; border-collapse: collapse; text-align: left; font-size: 12px;">
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.25); color:#aaa;">
+            <th style="padding: 4px 2px;">Class</th>
+            <th style="padding: 4px 2px;">Rhythm</th>
+            <th style="padding: 4px 2px;">Since Last</th>
+            <th style="padding: 4px 2px;">Status</th>
+            <th style="padding: 4px 2px;">P(%)</th>
+            <th style="padding: 4px 2px; min-width:110px;">Progress</th>
         </tr>`;
         
     let addRow = (label, data, labelColor) => {
         if (!data) return;
-        html += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-            <td style="padding: 8px 0; color:${labelColor}; font-weight:bold;">${label}</td>
-            <td style="padding: 8px 0; color:#ddd;">Every ${data.avgStr}</td>
-            <td style="padding: 8px 0; color:#fff;">${data.lastStr}</td>
-            <td style="padding: 8px 0; color:${data.color}; font-weight:bold;">${data.status}</td>
+        let progressPercent = Math.min(150, data.ratio * 100);
+        let barColor = data.color;
+        let pulseClass = data.ratio >= 1.5 ? 'gaia-bar-critical' : '';
+        let probColor = data.probPercent >= 80 ? '#ff3333' : data.probPercent >= 50 ? '#ff8800' : '#00ffcc';
+        html += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);" title="Last: M${data.lastMag} — ${data.lastPlace} (${data.count} events, Confidence: ${data.confidence} ${data.sigmaStr})">
+            <td style="padding: 6px 2px; color:${labelColor}; font-weight:bold;">${label}</td>
+            <td style="padding: 6px 2px; color:#ddd; font-size:11px;">Every ${data.avgStr}</td>
+            <td style="padding: 6px 2px; color:#fff; font-size:11px;">${data.lastStr}</td>
+            <td style="padding: 6px 2px; color:${data.color}; font-weight:bold; font-size:11px;">${data.status}</td>
+            <td style="padding: 6px 2px; color:${probColor}; font-weight:bold;">${data.probPercent}%</td>
+            <td style="padding: 6px 2px;"><div class="gaia-progress-bar ${pulseClass}"><div class="gaia-progress-fill" style="width:${Math.min(100, progressPercent)}%; background:${barColor};"></div></div></td>
         </tr>`;
     };
     
-    if (m4Stats) addRow("M4+", m4Stats, "#ff8800");
-    if (m5Stats) addRow("M5+", m5Stats, "#ff5555");
-    if (m6Stats) addRow("M6+", m6Stats, "#ff3333");
-    if (m7Stats) addRow("M7+", m7Stats, "#ff33ff");
-    if (m8Stats) addRow("M8+", m8Stats, "#ff00ff");
+    if (m3Stats) addRow('M3+', m3Stats, '#c8c800');
+    if (m4Stats) addRow('M4+', m4Stats, '#ff8800');
+    if (m5Stats) addRow('M5+', m5Stats, '#ff5555');
+    if (m6Stats) addRow('M6+', m6Stats, '#ff3333');
+    if (m7Stats) addRow('M7+', m7Stats, '#ff33ff');
+    if (m8Stats) addRow('M8+', m8Stats, '#ff00ff');
     
-    // M9 Placeholder
-    html += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-        <td style="padding: 8px 0; color:#aa00ff; font-weight:bold;">M9+</td>
-        <td style="padding: 8px 0; color:#ddd;">Every ~15y 0d</td>
-        <td style="padding: 8px 0; color:#fff;">Calculated by AI</td>
-        <td style="padding: 8px 0; color:#ff3333; font-weight:bold;">Monitoring</td>
+    // M9+ real historical data
+    let m9Events = [
+        { time: new Date('2011-03-11T05:46:24Z').getTime(), place: 'Tōhoku, Japan', mag: 9.1 },
+        { time: new Date('2004-12-26T00:58:53Z').getTime(), place: 'Sumatra, Indonesia', mag: 9.1 },
+        { time: new Date('1964-03-27T17:36:00Z').getTime(), place: 'Alaska, USA', mag: 9.2 },
+        { time: new Date('1960-05-22T19:11:00Z').getTime(), place: 'Valdivia, Chile', mag: 9.5 },
+        { time: new Date('1952-11-04T16:58:00Z').getTime(), place: 'Kamchatka, Russia', mag: 9.0 }
+    ];
+    let m9TimeSince = now - m9Events[0].time;
+    let m9Gaps = computeGaps(m9Events);
+    let m9AvgGap = median(m9Gaps);
+    let m9Ratio = m9TimeSince / m9AvgGap;
+    let m9Prob = poissonProbability(m9AvgGap, m9TimeSince);
+    let m9Status, m9StatusColor;
+    if (m9Ratio < 0.7) { m9Status = 'Resting Phase'; m9StatusColor = '#00ff88'; }
+    else if (m9Ratio < 1.0) { m9Status = 'Building Energy'; m9StatusColor = '#ff8800'; }
+    else { m9Status = 'Overdue'; m9StatusColor = '#ff3333'; }
+    let m9Progress = Math.min(150, m9Ratio * 100);
+    let m9ProbColor = Math.round(m9Prob*100) >= 50 ? '#ff3333' : '#ff8800';
+    html += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);" title="Last: M${m9Events[0].mag} — ${m9Events[0].place} (5 events since 1952)">
+        <td style="padding: 6px 2px; color:#aa00ff; font-weight:bold;">M9+</td>
+        <td style="padding: 6px 2px; color:#ddd; font-size:11px;">Every ${formatDur(m9AvgGap)}</td>
+        <td style="padding: 6px 2px; color:#fff; font-size:11px;">${formatDur(m9TimeSince)}</td>
+        <td style="padding: 6px 2px; color:${m9StatusColor}; font-weight:bold; font-size:11px;">${m9Status}</td>
+        <td style="padding: 6px 2px; color:${m9ProbColor}; font-weight:bold;">${Math.round(m9Prob*100)}%</td>
+        <td style="padding: 6px 2px;"><div class="gaia-progress-bar"><div class="gaia-progress-fill" style="width:${Math.min(100, m9Progress)}%; background:${m9StatusColor};"></div></div></td>
     </tr>`;
     
     html += `</table>`;
+    html += `<div style="margin-top:8px; color:#888; font-size:9px; text-align:center;">Hover rows for last event details · P(%) = Poisson probability · Rhythm = Median + EMA blend</div>`;
     
     if (historicalM5Eqs.length === 0 || historicalM7Eqs.length === 0 || historicalM8Eqs.length === 0) {
-        html += `<div style="margin-top:15px; color:#ff8800; text-align:center; font-size:11px; animation: pulse 1.5s infinite;">Fetching historical data... (Please wait 1-2s)</div>`;
+        html += `<div style="margin-top:10px; color:#ff8800; text-align:center; font-size:11px; animation: pulse 1.5s infinite;">Fetching historical data... (Please wait 1-2s)</div>`;
     }
     
     statsDiv.innerHTML = html;
