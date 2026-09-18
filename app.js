@@ -2184,11 +2184,12 @@ function startAutopilot() {
             autopilotTimeout = setTimeout(() => {
                 if (!isAutopilotActive) return;
                 
-                // Recenter without changing zoom
+                // Recenter and reset zoom (like the reset button)
                 offsetX = 0;
                 offsetY = 0;
+                zoom = 1.0;
                 
-                if (eqPopup) eqPopup.classList.add('hidden');
+                hideEqPopup();
                 document.querySelectorAll('#search-results-list li, #eq-list li').forEach(li => li.classList.remove('active'));
                 
                 isAutopilotActive = false;
