@@ -392,7 +392,8 @@ async function fetchEarthquakes() {
                         lon: f.geometry.coordinates[0],
                         lat: f.geometry.coordinates[1],
                         depth: f.geometry.coordinates[2] || 0,
-                        time: f.properties.time
+                        time: f.properties.time,
+                        tsunami: f.properties.tsunami || 0
                     });
                 }
             });
@@ -408,7 +409,8 @@ async function fetchEarthquakes() {
                         lon: f.geometry.coordinates[0],
                         lat: f.geometry.coordinates[1],
                         depth: f.geometry.coordinates[2] || f.properties.depth || 0,
-                        time: new Date(f.properties.time).getTime()
+                        time: new Date(f.properties.time).getTime(),
+                        tsunami: 0
                     });
                 }
             });
@@ -1624,6 +1626,43 @@ function draw() {
         ctx.strokeStyle = `rgba(0, 255, 204, ${finalOpacity * 0.5})`;
         ctx.lineWidth = 1;
         ctx.stroke();
+    }
+    
+    // Draw Massive Tsunami Shockwaves (USGS tsunami flag === 1)
+    for (let i = 0; i < earthquakes.length; i++) {
+        let eq = earthquakes[i];
+        if (eq.tsunami !== 1) continue;
+        
+        let ageMs = now - eq.time;
+        if (ageMs > 86400000) continue; // Older than 24 hours
+        
+        let r = ((90.0 - eq.lat) / 180.0) * 723.0;
+        let angle = eq.lon * Math.PI / 180.0;
+        let px = mapCx + (r * Math.sin(angle)) * scale;
+        let py = mapCy + (r * Math.cos(angle)) * scale;
+        
+        // Massive, fast-expanding rings for Tsunami
+        for (let wave = 0; wave < 3; wave++) {
+            let waveRadius = ((pulseTime * 120) + (wave * 200)) % 600;
+            let waveOpacity = Math.max(0, 1.0 - (waveRadius / 600));
+            
+            // Overall age fade out
+            let overallFade = Math.max(0, 1.0 - (ageMs / 86400000));
+            let finalWaveOp = waveOpacity * overallFade;
+            
+            ctx.beginPath();
+            ctx.arc(px, py, waveRadius * zoom, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(0, 150, 255, ${finalWaveOp * 0.8})`; // Deep ocean blue
+            ctx.lineWidth = 4 * zoom;
+            ctx.stroke();
+            
+            // Inner glow for the wave
+            ctx.beginPath();
+            ctx.arc(px, py, waveRadius * zoom - 2, 0, Math.PI * 2);
+            ctx.strokeStyle = `rgba(50, 200, 255, ${finalWaveOp * 0.4})`; // Light cyan core
+            ctx.lineWidth = 2 * zoom;
+            ctx.stroke();
+        }
     }
     
     // Draw Coastlines ON TOP of earthquakes so islands are always visible
