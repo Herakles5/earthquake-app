@@ -5,9 +5,9 @@ const statusDiv = document.getElementById('status');
 const eqPopup = document.getElementById('eq-popup');
 
 let width, height;
-let zoom = 1.0;
+let zoom = 0.77;
 let offsetX = 0;
-let offsetY = 0;
+let offsetY = -120;
 let isDragging = false;
 let startX, startY;
 let mouseDownX = 0, mouseDownY = 0;
@@ -1895,7 +1895,7 @@ function findEqAtPoint(clientX, clientY) {
 // Controls
 document.getElementById('btn-zoomin').addEventListener('click', () => { zoom *= 1.3; });
 document.getElementById('btn-zoomout').addEventListener('click', () => { zoom /= 1.3; if(zoom < 0.2) zoom = 0.2; });
-document.getElementById('btn-reset').addEventListener('click', () => { zoom = 1.0; offsetX = 0; offsetY = 0; hideEqPopup(); });
+document.getElementById('btn-reset').addEventListener('click', () => { zoom = 0.77; offsetX = 0; offsetY = -120; hideEqPopup(); });
 
 // Popup close button
 document.getElementById('eq-popup-close').addEventListener('click', (e) => {
@@ -2225,8 +2225,8 @@ function startAutopilot() {
                 
                 // Recenter and reset zoom (like the reset button)
                 offsetX = 0;
-                offsetY = 0;
-                zoom = 1.0;
+                offsetY = -120;
+                zoom = 0.77;
                 
                 hideEqPopup();
                 document.querySelectorAll('#search-results-list li, #eq-list li').forEach(li => li.classList.remove('active'));
