@@ -1641,24 +1641,30 @@ function draw() {
         let px = mapCx + (r * Math.sin(angle)) * scale;
         let py = mapCy + (r * Math.cos(angle)) * scale;
         
-        // Massive, fast-expanding rings for Tsunami
+        // Smaller, inward-flowing rings for Tsunami
         for (let wave = 0; wave < 3; wave++) {
-            let waveRadius = ((pulseTime * 120) + (wave * 200)) % 600;
-            let waveOpacity = Math.max(0, 1.0 - (waveRadius / 600));
+            // Shrinking wave: starts at 150, goes down to 0
+            let wavePhase = ((pulseTime * 40) + (wave * 50)) % 150;
+            let waveRadius = 150 - wavePhase;
             
             // Overall age fade out
             let overallFade = Math.max(0, 1.0 - (ageMs / 86400000));
-            let finalWaveOp = waveOpacity * overallFade;
+            
+            // waveRadius is 150 -> 0. waveRadius/150 is 1.0 -> 0.0. 
+            let finalWaveOp = (waveRadius / 150) * overallFade;
+            
+            let rOuter = Math.max(0.1, waveRadius * zoom);
+            let rInner = Math.max(0.1, (waveRadius * zoom) - 2);
             
             ctx.beginPath();
-            ctx.arc(px, py, waveRadius * zoom, 0, Math.PI * 2);
+            ctx.arc(px, py, rOuter, 0, Math.PI * 2);
             ctx.strokeStyle = `rgba(0, 150, 255, ${finalWaveOp * 0.8})`; // Deep ocean blue
             ctx.lineWidth = 4 * zoom;
             ctx.stroke();
             
             // Inner glow for the wave
             ctx.beginPath();
-            ctx.arc(px, py, waveRadius * zoom - 2, 0, Math.PI * 2);
+            ctx.arc(px, py, rInner, 0, Math.PI * 2);
             ctx.strokeStyle = `rgba(50, 200, 255, ${finalWaveOp * 0.4})`; // Light cyan core
             ctx.lineWidth = 2 * zoom;
             ctx.stroke();
