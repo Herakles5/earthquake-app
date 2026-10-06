@@ -2286,3 +2286,53 @@ setInterval(() => {
         startAutopilot();
     }
 }, 5000);
+
+// ==========================================
+// FIREBASE LIVE VIEWER COUNT
+// ==========================================
+const firebaseConfig = {
+    apiKey: "AIzaSyBnt-blahJuA456Vn3r2pFRYpz0PtO56zs",
+    authDomain: "herakles-earthquakes.firebaseapp.com",
+    databaseURL: "https://herakles-earthquakes-default-rtdb.firebaseio.com",
+    projectId: "herakles-earthquakes",
+    storageBucket: "herakles-earthquakes.firebasestorage.app",
+    messagingSenderId: "747525284572",
+    appId: "1:747525284572:web:be9c61d814eb6ca6e00a19"
+};
+
+try {
+    const viewerCountEl = document.getElementById('viewer-count');
+    if (viewerCountEl) viewerCountEl.textContent = "?"; // Loading state
+    
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    
+    const connectionsRef = db.ref('connections');
+    const connectedRef = db.ref('.info/connected');
+    
+    // When the client connects, create a new connection entry
+    connectedRef.on('value', (snap) => {
+        if (snap.val() === true) {
+            const con = connectionsRef.push();
+            con.onDisconnect().remove();
+            con.set(true).catch(err => {
+                if (viewerCountEl) viewerCountEl.textContent = "ERR: Rules";
+                console.error("Firebase write error (check rules):", err);
+            });
+        }
+    });
+    
+    // Listen to the total number of connections
+    connectionsRef.on('value', (snap) => {
+        if (viewerCountEl) {
+            viewerCountEl.textContent = snap.numChildren() || 0;
+        }
+    }, (error) => {
+        if (viewerCountEl) viewerCountEl.textContent = "ERR: DB";
+        console.error("Firebase read error:", error);
+    });
+} catch(e) {
+    const viewerCountEl = document.getElementById('viewer-count');
+    if (viewerCountEl) viewerCountEl.textContent = "ERR: Init";
+    console.log("Firebase not configured correctly yet:", e);
+}
