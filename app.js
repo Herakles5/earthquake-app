@@ -2286,3 +2286,28 @@ setInterval(() => {
         startAutopilot();
     }
 }, 5000);
+
+// Live Viewer Count Simulation
+let viewerCount = 142 + Math.floor(Math.random() * 50);
+const viewerCountEl = document.getElementById('viewer-count');
+
+function updateViewerCount() {
+    if (!viewerCountEl) return;
+    
+    // Add or subtract 1 to 3 viewers
+    let change = Math.floor(Math.random() * 7) - 3; 
+    viewerCount += change;
+    
+    // Keep it realistic
+    if (viewerCount < 50) viewerCount += 15;
+    if (viewerCount > 500) viewerCount -= 15;
+    
+    // Simple text with no context as requested
+    viewerCountEl.textContent = viewerCount;
+    
+    // Random delay for next update (2 to 7 seconds)
+    setTimeout(updateViewerCount, 2000 + Math.random() * 5000);
+}
+
+// Start simulation after a short delay
+setTimeout(updateViewerCount, 1500);
