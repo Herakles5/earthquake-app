@@ -67,7 +67,7 @@
             <button id="btn-help">?</button>
         </div>
         <!-- margin-top: -90px; zieht das gesamte Fenster samt Button nach oben -->
-        <div id="long-term-stats" style="position: relative; margin-top: -90px;">
+        <div id="long-term-stats" style="position: relative; margin-top: -90px; max-height: calc(100vh - 110px); overflow-y: auto;">
             
             <!-- Der PayPal-Link bleibt exakt als Tab rechts bündig -->
             <a href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=boxingdual@gmail.com&currency_code=EUR&item_name=Coffee+Support+Earthquake+Tracker" target="_blank" style="position: absolute; top: -1px; right: 0; transform: translateX(100%); display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #0070ba; color: #ffffff; text-decoration: none; border: 1px solid #005ea6; border-left: none; padding: 6px 10px; border-radius: 0 5px 5px 0; box-shadow: 2px 2px 4px rgba(0,0,0,0.5); cursor: pointer; width: max-content; pointer-events: auto; z-index: 1000;">
@@ -76,6 +76,13 @@
             </a>
 
             <h3>LONG-TERM STATS (M3.0+)</h3>
+            
+            <div class="stat-box" style="border-color: #ff00ff; cursor: pointer;" onclick="document.getElementById('srModal').style.display='flex'">
+                <h4 style="color: #ff00ff;">SCHUMANN RESONANCE</h4>
+                <div class="stat-row"><span class="stat-lbl">Gaia Charge:</span> <span id="stat-sr-charge" style="color: #ff00ff; font-weight: bold;">...</span></div>
+                <div class="stat-row"><span class="stat-lbl">Impact:</span> <span id="stat-sr-impact">...</span></div>
+            </div>
+
             <div class="stat-box">
                 <h4>LAST 7 DAYS</h4>
                 <div class="stat-row"><span class="stat-lbl">Total (M3.0+):</span> <span id="stat-7d-count">Calculating...</span></div>
@@ -119,6 +126,7 @@
                 <div class="stat-row"><span class="stat-lbl">North vs South:</span> <span id="stat-hemi-ns">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">East vs West:</span> <span id="stat-hemi-ew">...</span></div>
             </div>
+
         </div>
         
         <div id="bottom-ui-wrapper">
@@ -181,6 +189,34 @@
         <div id="list-container">
             <h3>Recent (24H)</h3>
             <ul id="eq-list"></ul>
+        </div>
+        
+        <div id="srModal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 10000; align-items: center; justify-content: center;">
+            <div style="background: rgba(10, 10, 20, 0.95); border: 2px solid #ff00ff; padding: 20px; border-radius: 12px; max-width: 600px; width: 90%; color: #fff; box-shadow: 0 0 30px rgba(255, 0, 255, 0.4);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h2 style="color: #ff00ff; margin: 0; text-shadow: 0 0 10px #ff00ff;">Schumann Resonance / Geomagnetic Energy</h2>
+                    <button onclick="document.getElementById('srModal').style.display='none'" style="background: none; border: none; color: #fff; font-size: 24px; cursor: pointer;">×</button>
+                </div>
+                <p style="font-size: 14px; line-height: 1.6; margin-bottom: 15px; color: #ccc;">
+                    This system calculates a <strong>Gaia Charge Multiplier</strong> by tracking live geomagnetic disruptions (Kp-Index via NOAA Space Weather). 
+                    When the Earth's electromagnetic field (and the Schumann Resonance cavity) is disturbed, it indicates intense energetic build-up.
+                </p>
+                <div style="background: rgba(255, 0, 255, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <h3 style="margin: 0 0 10px 0; color: #ff88ff; font-size: 16px;">Live Status</h3>
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                        <span>Geomagnetic Kp-Index (NOAA):</span> <strong id="sr-kp-val" style="color: #ff00ff;">Loading...</strong>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>Gaia Charge Multiplier:</span> <strong id="sr-mult-val" style="color: #00ffcc;">1.00x</strong>
+                    </div>
+                </div>
+                <p style="font-size: 12px; color: #888; font-style: italic;">
+                    The Gaia Charge Multiplier is dynamically applied to all statistical Poisson probabilities in the Rhythm Matrix. Higher energetic tension accelerates the expected earthquake rhythms.
+                </p>
+                <div style="text-align: right; margin-top: 20px;">
+                    <button onclick="document.getElementById('srModal').style.display='none'" style="background: rgba(255,0,255,0.2); border: 1px solid #ff00ff; color: #ff00ff; padding: 8px 16px; border-radius: 4px; cursor: pointer; text-transform: uppercase; font-weight: bold;">Close</button>
+                </div>
+            </div>
         </div>
         
         <div id="help-modal" class="hidden">
@@ -254,7 +290,9 @@
                 The Earth behaves like a pregnant woman (Gaia) in labor. Foreshocks build up energy before releasing it. 
                 This system <b>autonomously</b> fetches up to 20 years of historical data to dynamically calculate the unique rhythm (contraction frequency) of each earthquake magnitude class. 
                 Uses <b>Median + Exponential Moving Average</b> blending for robustness against aftershock clusters, with <b>Poisson probability</b> modeling and <b>confidence intervals</b> based on standard deviation.
-                Hover over any row to see the last event's details.
+                <br><br>
+                <span style="color: #ff00ff; font-weight: bold;">[NEW] Schumann Resonance Sync:</span> The probabilities are dynamically accelerated by the <strong>Gaia Charge Multiplier</strong>, which tracks live geomagnetic and ionospheric disturbances. High energetic tension forces a faster release of the tectonic rhythm!
+                <br><br>Hover over any row to see the last event's details.
             </div>
             <div class="eq-popup-stats" id="gaia-popup-stats">
                 <!-- Filled dynamically by JS -->
