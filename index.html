@@ -79,6 +79,7 @@
             
             <div class="stat-box" style="border-color: #ff00ff; cursor: pointer;" onclick="document.getElementById('srModal').style.display='flex'">
                 <h4 style="color: #ff00ff;">SCHUMANN RESONANCE</h4>
+                <div class="stat-row"><span class="stat-lbl">Kp-Index:</span> <span id="stat-sr-kp" style="color: #ff88ff;">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Gaia Charge:</span> <span id="stat-sr-charge" style="color: #ff00ff; font-weight: bold;">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Impact:</span> <span id="stat-sr-impact">...</span></div>
             </div>
@@ -191,7 +192,7 @@
             <ul id="eq-list"></ul>
         </div>
         
-        <div id="srModal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 10000; align-items: center; justify-content: center;">
+        <div id="srModal" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.8); z-index: 10000; align-items: center; justify-content: center; pointer-events: auto;">
             <div style="background: rgba(10, 10, 20, 0.95); border: 2px solid #ff00ff; padding: 20px; border-radius: 12px; max-width: 600px; width: 90%; color: #fff; box-shadow: 0 0 30px rgba(255, 0, 255, 0.4);">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <h2 style="color: #ff00ff; margin: 0; text-shadow: 0 0 10px #ff00ff;">Schumann Resonance / Geomagnetic Energy</h2>

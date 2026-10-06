@@ -398,8 +398,11 @@ async function fetchSchumannData() {
             let elMult = document.getElementById('sr-mult-val');
             let elImp = document.getElementById('stat-sr-impact');
             let elCharge = document.getElementById('stat-sr-charge');
+            let elSrKp = document.getElementById('stat-sr-kp');
+            
             if(elMult) elMult.textContent = charge.toFixed(2) + "x";
             if(elCharge) elCharge.textContent = charge.toFixed(2) + "x";
+            if(elSrKp) elSrKp.textContent = kpVal.toFixed(2);
             
             if(elImp) {
                 if(charge > 1.5) {
