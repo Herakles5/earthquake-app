@@ -1068,3 +1068,178 @@ h3 {
     visibility: visible !important;
     background: rgba(0, 0, 0, 0.8) !important;
 }
+
+/* =====================================================================
+   DASHBOARD LAYOUT v2
+   All calculations in ONE row on top (left -> right, up to the RECENT 24H column),
+   the map sits below. --strip-h is kept in sync by app.js (ResizeObserver).
+   ===================================================================== */
+:root { --strip-h: 235px; --list-w: 270px; }
+
+#dashboard-strip {
+    position: absolute;
+    top: 35px;
+    left: 0;
+    right: var(--list-w);
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 10px;
+    overflow: visible;
+    background: linear-gradient(180deg, rgba(12,12,20,0.98) 0%, rgba(22,22,34,0.94) 100%);
+    border-bottom: 1px solid rgba(255,136,0,0.35);
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+    pointer-events: auto;
+}
+
+.strip-row {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255,136,0,0.5) transparent;
+}
+.strip-row::-webkit-scrollbar { height: 5px; }
+.strip-row::-webkit-scrollbar-thumb { background: rgba(255,136,0,0.5); border-radius: 3px; }
+.strip-row > * { flex: 0 0 auto; }
+
+/* header card */
+#dashboard-strip #header {
+    margin: 0;
+    padding: 8px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 6px;
+    min-width: 215px;
+    background: rgba(0,0,0,0.4);
+    border-radius: 6px;
+    border: 1px solid rgba(255,136,0,0.25);
+    pointer-events: auto;
+}
+#dashboard-strip #header .head-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+#dashboard-strip #header h1 { font-size: 16px; letter-spacing: 1px; margin: 0; white-space: nowrap; }
+#dashboard-strip #header .head-status { display: flex; align-items: baseline; gap: 12px; }
+#dashboard-strip #status { font-size: 12px; }
+#dashboard-strip .btn-search { width: 30px; height: 30px; border-radius: 15px; font-size: 20px; line-height: 20px; }
+#dashboard-strip #spotify-player { position: static; transform: none; }
+#dashboard-strip .station-btn {
+    background: linear-gradient(90deg, #8a2387, #e94057, #f27121);
+    color: #fff; padding: 5px 12px; border-radius: 18px; font-weight: bold; text-decoration: none;
+    font-size: 11px; display: inline-flex; align-items: center; gap: 6px; font-family: sans-serif;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.5); white-space: nowrap; transition: transform 0.2s;
+}
+#dashboard-strip .station-btn:hover { transform: scale(1.04); }
+#dashboard-strip .donate-btn {
+    align-self: flex-start; background: #0070ba; color: #fff; text-decoration: none; font-size: 10px; font-weight: bold;
+    padding: 3px 9px; border-radius: 10px; border: 1px solid #005ea6; letter-spacing: 0.5px;
+}
+
+/* stat boxes */
+#dashboard-strip .stat-box {
+    margin: 0 !important;
+    padding: 7px 10px;
+    min-width: 175px;
+    border-radius: 6px;
+}
+#dashboard-strip .stat-box h4 { font-size: 11px; margin: 0 0 7px 0; white-space: nowrap; }
+#dashboard-strip .stat-row {
+    flex-direction: row !important;
+    align-items: baseline !important;
+    justify-content: space-between;
+    gap: 10px !important;
+    font-size: 12px !important;
+    margin-bottom: 4px !important;
+    white-space: nowrap;
+}
+#dashboard-strip .stat-val-reg { font-size: 11px !important; max-width: 105px; }
+
+/* prediction bar (ALL / MODERATE) */
+#dashboard-strip #prediction-bar {
+    border-radius: 6px;
+    padding: 8px 12px;
+    gap: 12px;
+    font-size: 12px;
+    letter-spacing: 0.5px;
+    text-align: left;
+    flex-direction: row !important;
+    width: max-content !important;
+}
+#dashboard-strip .pred-column { min-width: 235px !important; flex: 0 0 auto !important; gap: 5px; }
+#dashboard-strip .pred-col-title { font-size: 11px; margin-bottom: 2px; padding-bottom: 3px; letter-spacing: 1px; }
+#dashboard-strip .pred-label { font-size: 10px; }
+#dashboard-strip .pred-row { gap: 8px; }
+#dashboard-strip #prediction-timer, #dashboard-strip #prediction-timer-24h,
+#dashboard-strip #prediction-timer-m4, #dashboard-strip #prediction-timer-24h-m4 { font-size: 14px; }
+#dashboard-strip #prediction-region-5, #dashboard-strip #prediction-region-24h,
+#dashboard-strip #prediction-region-5-m4, #dashboard-strip #prediction-region-24h-m4 { font-size: 11px; max-width: 135px; }
+#dashboard-strip .pred-main-divider { width: 1px !important; height: auto !important; margin: 3px 0 !important; }
+
+/* Gaia rhythm matrix card */
+#dashboard-strip .matrix-card {
+    min-width: 480px;
+    padding: 6px 10px 8px 10px;
+    background: rgba(15,15,20,0.85);
+    border: 1px solid rgba(255,51,255,0.4);
+    border-radius: 6px;
+    box-shadow: 0 2px 10px rgba(255,51,255,0.12);
+    cursor: pointer;
+}
+#dashboard-strip .matrix-title {
+    color: #ff33ff; font-size: 11px; font-weight: bold; letter-spacing: 2px; text-align: center;
+    margin-bottom: 3px; text-shadow: 0 0 5px rgba(255,51,255,0.5);
+}
+#gaia-strip-stats table { font-size: 11px !important; }
+#gaia-strip-stats th { padding: 2px 3px !important; font-size: 10px; white-space: nowrap; }
+#gaia-strip-stats td { padding: 3px 3px !important; white-space: nowrap; }
+#gaia-strip-stats th[style*="min-width"] { min-width: 80px !important; }
+#gaia-strip-stats .gaia-progress-bar { height: 6px; }
+
+/* 144h seismic activity chart inside the strip */
+#dashboard-strip #gaia-diagram-container {
+    position: relative !important;
+    left: auto !important; right: auto !important; bottom: auto !important;
+    width: 430px !important;
+    height: auto !important;
+    min-height: 100px;
+    transform: none;
+    z-index: 1 !important;
+    background: rgba(15,15,20,0.85) !important;
+    border-radius: 6px;
+    padding: 5px 12px;
+}
+#dashboard-strip #gaia-diagram-container:hover { transform: none; }
+
+/* RECENT 24H as full-height column on the right */
+#list-container {
+    top: 35px !important;
+    right: 0 !important;
+    bottom: 0;
+    width: var(--list-w) !important;
+    max-height: none !important;
+    border-radius: 0 !important;
+    border-width: 0 0 0 1px !important;
+    padding: 10px 12px !important;
+    z-index: 40;
+}
+
+/* the map lives BELOW the strip, left of the list */
+#mapCanvas {
+    top: var(--strip-h) !important;
+    left: 0;
+    width: calc(100% - var(--list-w)) !important;
+    height: calc(100% - var(--strip-h)) !important;
+}
+
+#controls { top: auto !important; right: auto !important; left: 15px !important; bottom: 20px !important; transform: none; }
+#search-panel { top: calc(var(--strip-h) + 6px) !important; left: 15px; z-index: 120; }
+
+@media (max-width: 768px) {
+    :root { --list-w: 130px; }
+    #dashboard-strip .stat-row { font-size: 11px !important; }
+    #list-container h3 { font-size: 10px; }
+}

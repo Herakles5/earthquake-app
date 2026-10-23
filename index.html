@@ -16,127 +16,93 @@
 </head>
 <body>
     <div id="ui-layer">
-        <div id="header" style="margin-top: 35px; display: flex; align-items: center; gap: 20px;">
-            <div>
-                <h1>LIVE EARTHQUAKES</h1>
-                <div style="display: flex; align-items: baseline; gap: 15px;">
-                    <div id="status">Fetching data...</div>
-                    <div id="viewer-count" style="color: #FFD700; font-weight: 800; font-size: 1.1em; text-shadow: 0 0 5px rgba(255, 215, 0, 0.5);"></div>
-                </div>
-            </div>
-            <button id="btn-search-toggle" class="btn-search">+</button>
-        </div>
-
-        <div id="search-panel" class="hidden">
-            <div class="search-panel-header">
-                <input type="text" id="eq-search-input" placeholder="Search region (e.g., California)..." autocomplete="off">
-            </div>
-            <div class="search-tabs">
-                <button class="search-tab active" data-mag="3">M3+</button>
-                <button class="search-tab" data-mag="4">M4+</button>
-                <button class="search-tab" data-mag="5">M5+</button>
-                <button class="search-tab" data-mag="6">M6+</button>
-                <button class="search-tab" data-mag="7">M7+</button>
-                <button class="search-tab" data-mag="8">M8+</button>
-                <button class="search-tab" data-mag="9">M9+</button>
-            </div>
-            <div class="search-results-container">
-                <ul id="search-results-list"></ul>
-            </div>
-        </div>
-
     <div id="ticker-container">
         <div id="ticker-scroll">
             <span id="ticker-content">
-                <span class="ticker-item">Loading Tsunami & Volcano Data...</span>
+                <span class="ticker-item">Loading Tsunami &amp; Volcano Data...</span>
             </span>
         </div>
     </div>
 
-    <!-- Radio Player Button (Top Middle below Ticker) -->
-    <div id="spotify-player" style="position: absolute; top: 40px; left: 50%; transform: translateX(-50%); z-index: 100; pointer-events: auto;">
-        <a href="https://app.stationhead.com/meovvfm" target="_blank" style="background: linear-gradient(90deg, #8a2387, #e94057, #f27121); color: white; padding: 8px 20px; border-radius: 25px; font-weight: bold; text-decoration: none; font-size: 14px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); display: flex; align-items: center; gap: 8px; font-family: sans-serif; cursor: pointer; transition: transform 0.2s;">
-            🎵 Listen to MEOVV FM (Stationhead)
-        </a>
-    </div>
-        <div id="controls">
-            <button id="btn-sound" style="background-color: #ff3333; font-size: 12px;">Sound: OFF</button>
-            <button id="btn-zoomin">+</button>
-            <button id="btn-zoomout">-</button>
-            <button id="btn-reset">Reset</button>
-            <button id="btn-help">?</button>
-        </div>
-        <!-- margin-top: -90px; zieht das gesamte Fenster samt Button nach oben -->
-        <div id="long-term-stats" style="position: relative; margin-top: -90px; max-height: calc(100vh - 110px); overflow-y: auto;">
-            
-            <!-- Der PayPal-Link bleibt exakt als Tab rechts bündig -->
-            <a href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=boxingdual@gmail.com&currency_code=EUR&item_name=Coffee+Support+Earthquake+Tracker" target="_blank" style="position: absolute; top: -1px; right: 0; transform: translateX(100%); display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #0070ba; color: #ffffff; text-decoration: none; border: 1px solid #005ea6; border-left: none; padding: 6px 10px; border-radius: 0 5px 5px 0; box-shadow: 2px 2px 4px rgba(0,0,0,0.5); cursor: pointer; width: max-content; pointer-events: auto; z-index: 1000;">
-                <span style="font-size: 18px; line-height: 1;">☕</span>
-                <span style="font-size: 9px; font-weight: bold; margin-top: 4px; line-height: 1; letter-spacing: 0.5px;">Donate</span>
-            </a>
+    <!-- ===== DASHBOARD STRIP: two rows/layers (Row 1: Header to 30D Deep; Row 2: Hemispheres to Gaia Diagram) ===== -->
+    <div id="dashboard-strip">
+        <div class="strip-row">
+            <div class="strip-card strip-head" id="header">
+                <div class="head-top">
+                    <h1>LIVE EARTHQUAKES</h1>
+                    <button id="btn-search-toggle" class="btn-search">+</button>
+                </div>
+                <div class="head-status">
+                    <div id="status">Fetching data...</div>
+                    <div id="viewer-count" style="color: #FFD700; font-weight: 800; font-size: 1.1em; text-shadow: 0 0 5px rgba(255, 215, 0, 0.5);"></div>
+                </div>
+                <div id="spotify-player">
+                    <a href="https://app.stationhead.com/meovvfm" target="_blank" class="station-btn">🎵 Listen to MEOVV FM (Stationhead)</a>
+                </div>
+                <a class="donate-btn" href="https://www.paypal.com/cgi-bin/webscr?cmd=_xclick&business=boxingdual@gmail.com&currency_code=EUR&item_name=Coffee+Support+Earthquake+Tracker" target="_blank">☕ Donate</a>
+            </div>
 
-            <h3>LONG-TERM STATS (M3.0+)</h3>
-            
-            <div class="stat-box" style="border-color: #ff00ff; cursor: pointer;" onclick="document.getElementById('srModal').style.display='flex'">
+            <div class="stat-box strip-card" style="border-color: #ff00ff; cursor: pointer;" onclick="document.getElementById('srModal').style.display='flex'">
                 <h4 style="color: #ff00ff;">SCHUMANN RESONANCE</h4>
                 <div class="stat-row"><span class="stat-lbl">Kp-Index:</span> <span id="stat-sr-kp" style="color: #ff88ff;">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Gaia Charge:</span> <span id="stat-sr-charge" style="color: #ff00ff; font-weight: bold;">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Impact:</span> <span id="stat-sr-impact">...</span></div>
             </div>
 
-            <div class="stat-box">
+            <div class="stat-box strip-card">
                 <h4>LAST 7 DAYS</h4>
                 <div class="stat-row"><span class="stat-lbl">Total (M3.0+):</span> <span id="stat-7d-count">Calculating...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Next:</span> <span id="stat-7d-avg" class="clickable-stat" data-calc="7d">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Top Region:</span> <span class="stat-val-reg" id="stat-7d-region">...</span></div>
             </div>
-            <div class="stat-box mag-box">
+            <div class="stat-box mag-box strip-card">
                 <h4>LAST 7 DAYS (HEAVY)</h4>
                 <div class="stat-row"><span class="stat-lbl">Mag 5.0+ Total:</span> <span id="stat-7d-mag5" class="stat-val-mag5">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Next Mag 5.0+:</span> <span id="stat-7d-mag5-avg" class="clickable-stat" data-calc="7d-mag5">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Mag 7.0+ Total:</span> <span id="stat-7d-mag7" class="stat-val-mag7">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Next Mag 7.0+:</span> <span id="stat-7d-mag7-avg" class="clickable-stat" data-calc="7d-mag7">...</span></div>
             </div>
-            <div class="stat-box deep-box">
-                <h4>LAST 7 DAYS (DEEP >150KM)</h4>
+            <div class="stat-box deep-box strip-card">
+                <h4>LAST 7 DAYS (DEEP &gt;150KM)</h4>
                 <div class="stat-row"><span class="stat-lbl">Deep Total:</span> <span id="stat-7d-deep" class="stat-val-deep">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Next Deep:</span> <span id="stat-7d-deep-avg">...</span></div>
             </div>
-            
-            <div class="stat-box">
+
+            <div class="stat-box strip-card">
                 <h4>LAST 30 DAYS</h4>
                 <div class="stat-row"><span class="stat-lbl">Total (M3.0+):</span> <span id="stat-30d-count">Calculating...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Next:</span> <span id="stat-30d-avg" class="clickable-stat" data-calc="30d">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Top Region:</span> <span class="stat-val-reg" id="stat-30d-region">...</span></div>
             </div>
-            <div class="stat-box mag-box">
+            <div class="stat-box mag-box strip-card">
                 <h4>LAST 30 DAYS (HEAVY)</h4>
                 <div class="stat-row"><span class="stat-lbl">Mag 5.0+ Total:</span> <span id="stat-30d-mag5" class="stat-val-mag5">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Next Mag 5.0+:</span> <span id="stat-30d-mag5-avg" class="clickable-stat" data-calc="30d-mag5">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Mag 7.0+ Total:</span> <span id="stat-30d-mag7" class="stat-val-mag7">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Next Mag 7.0+:</span> <span id="stat-30d-mag7-avg" class="clickable-stat" data-calc="30d-mag7">...</span></div>
             </div>
-            <div class="stat-box deep-box">
-                <h4>LAST 30 DAYS (DEEP >150KM)</h4>
+            <div class="stat-box deep-box strip-card">
+                <h4>LAST 30 DAYS (DEEP &gt;150KM)</h4>
                 <div class="stat-row"><span class="stat-lbl">Deep Total:</span> <span id="stat-30d-deep" class="stat-val-deep">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Next Deep:</span> <span id="stat-30d-deep-avg">...</span></div>
             </div>
-            
-            <div class="stat-box" style="border-color: #00ffcc;">
+        </div>
+
+        <div class="strip-row">
+            <div class="stat-box strip-card" style="border-color: #00ffcc;">
                 <h4 style="color: #00ffcc;">HEMISPHERES (LAST 24H)</h4>
                 <div class="stat-row"><span class="stat-lbl">North vs South:</span> <span id="stat-hemi-ns">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">East vs West:</span> <span id="stat-hemi-ew">...</span></div>
             </div>
 
-        </div>
-        
-        <div id="bottom-ui-wrapper">
-            <div id="gaia-diagram-container">
-                <div id="gaia-diagram-title">GAIA'S SEISMIC ACTIVITY (144H)</div>
-                <canvas id="gaiaCanvas"></canvas>
+            <div class="stat-box strip-card" id="hotspot-card" style="border-color: #ffcc00;" title="Long-term hotspots (server model). P = chance of at least one M5+ mainshock within 300 km in the next 7 days.">
+                <h4 style="color: #ffcc00;">HOTSPOTS · M5+ · 7 DAYS</h4>
+                <div class="stat-row"><span class="stat-lbl" id="hotspot-1-name">...</span> <span id="hotspot-1-p">...</span></div>
+                <div class="stat-row"><span class="stat-lbl" id="hotspot-2-name">...</span> <span id="hotspot-2-p">...</span></div>
+                <div class="stat-row"><span class="stat-lbl" id="hotspot-3-name">...</span> <span id="hotspot-3-p">...</span></div>
             </div>
 
-            <div id="prediction-bar">
+            <div id="prediction-bar" class="strip-card">
                 <div class="pred-column">
                     <div class="pred-col-title">ALL (M3.0+)</div>
                     <div class="pred-group">
@@ -147,9 +113,9 @@
                             <span class="pred-label">Region:</span> <span id="prediction-region-5">Calculating...</span>
                         </div>
                     </div>
-                    
+
                     <div class="pred-divider"></div>
-                    
+
                     <div class="pred-group">
                         <div class="pred-row">
                             <span class="pred-label">Global (24h):</span> <span id="prediction-timer-24h" class="clickable-stat" data-calc="global">Calculating...</span>
@@ -159,9 +125,9 @@
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="pred-main-divider"></div>
-                
+
                 <div class="pred-column">
                     <div class="pred-col-title" style="color:#ff8800;">MODERATE (M4.0+)</div>
                     <div class="pred-group">
@@ -172,9 +138,9 @@
                             <span class="pred-label">Region:</span> <span id="prediction-region-5-m4">Calculating...</span>
                         </div>
                     </div>
-                    
+
                     <div class="pred-divider"></div>
-                    
+
                     <div class="pred-group">
                         <div class="pred-row">
                             <span class="pred-label">Global (24h):</span> <span id="prediction-timer-24h-m4" class="clickable-stat" data-calc="global-m4">Calculating...</span>
@@ -185,7 +151,45 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Gaia Rhythm Matrix (M3+ ... M8+, M9+) - same engine/numbers as every countdown -->
+            <div class="strip-card matrix-card" id="gaia-matrix-card" title="Click for details">
+                <div class="matrix-title">GAIA RHYTHM MATRIX · M3+ … M9+</div>
+                <div id="gaia-strip-stats">Calculating...</div>
+            </div>
+
+            <div id="gaia-diagram-container" class="strip-card">
+                <div id="gaia-diagram-title">GAIA'S SEISMIC ACTIVITY (144H)</div>
+                <canvas id="gaiaCanvas"></canvas>
+            </div>
         </div>
+    </div>
+
+    <div id="search-panel" class="hidden">
+        <div class="search-panel-header">
+            <input type="text" id="eq-search-input" placeholder="Search region (e.g., California)..." autocomplete="off">
+        </div>
+        <div class="search-tabs">
+            <button class="search-tab active" data-mag="3">M3+</button>
+            <button class="search-tab" data-mag="4">M4+</button>
+            <button class="search-tab" data-mag="5">M5+</button>
+            <button class="search-tab" data-mag="6">M6+</button>
+            <button class="search-tab" data-mag="7">M7+</button>
+            <button class="search-tab" data-mag="8">M8+</button>
+            <button class="search-tab" data-mag="9">M9+</button>
+        </div>
+        <div class="search-results-container">
+            <ul id="search-results-list"></ul>
+        </div>
+    </div>
+
+    <div id="controls">
+        <button id="btn-sound" style="background-color: #ff3333; font-size: 12px;">Sound: OFF</button>
+        <button id="btn-zoomin">+</button>
+        <button id="btn-zoomout">-</button>
+        <button id="btn-reset">Reset</button>
+        <button id="btn-help">?</button>
+    </div>
         
         <div id="list-container">
             <h3>Recent (24H)</h3>

@@ -7,7 +7,7 @@ const eqPopup = document.getElementById('eq-popup');
 let width, height;
 let zoom = 0.77;
 let offsetX = 0;
-let offsetY = -120;
+let offsetY = 0;
 let isDragging = false;
 let startX, startY;
 let mouseDownX = 0, mouseDownY = 0;
@@ -100,9 +100,11 @@ function trimmedMean(arr, trimPercent = 0.1) {
 }
 
 function exponentialWeightedAvg(gaps, alpha = 0.3) {
+    // gaps are NEWEST-FIRST (as returned by computeGaps on a newest-first list).
+    // Walk from the oldest gap to the newest so that recent gaps get the highest weight.
     if (gaps.length === 0) return 0;
-    let ema = gaps[0];
-    for (let i = 1; i < gaps.length; i++) {
+    let ema = gaps[gaps.length - 1];
+    for (let i = gaps.length - 2; i >= 0; i--) {
         ema = alpha * gaps[i] + (1 - alpha) * ema;
     }
     return ema;
@@ -117,8 +119,9 @@ function stdDev(arr) {
 
 function poissonProbability(avgGapMs, timeSinceLast) {
     // P(at least 1 event in elapsed time) = 1 - e^(-λ*t)
+    // avgGapMs must already include the Gaia charge (done once in the Gaia engine).
     if (avgGapMs <= 0) return 0;
-    const lambda = (1.0 / avgGapMs) * gaiaChargeMultiplier;
+    const lambda = 1.0 / avgGapMs;
     return Math.min(0.99, 1.0 - Math.exp(-lambda * timeSinceLast));
 }
 
@@ -155,7 +158,152 @@ function computeGaps(eqs) {
     return gaps;
 }
 
+// ==========================================================================
+// UNIFIED GAIA RHYTHM ENGINE
+// One single calculation path for EVERY "next quake" countdown in the app
+// (sidebar 24h/7d/30d, prediction bar, Gaia Rhythm Matrix):
+//   1. merge all catalogs (live 24h + 30d + 1y M5+ + 5y M7+ + 20y M8+), de-duplicate USGS/EMSC twins
+//   2. M5+ classes: remove aftershocks (Gardner-Knopoff 1974, causal) -> independent mainshocks only
+//   3. rhythm = 60% median gap + 40% recency-weighted EMA gap
+//   4. Schumann/Kp 'Gaia charge' divides the gap exactly once
+//   5. next = time of the latest event + charged gap
+// ==========================================================================
+function gkWindow(mag) {
+    let days = mag >= 6.5 ? Math.pow(10, 0.032 * mag + 2.7) : Math.pow(10, 0.5409 * mag - 0.547);
+    let km = Math.pow(10, 0.1238 * mag + 0.983);
+    return { ms: days * 86400000, km: km };
+}
+
+function declusterGK(eqsNewestFirst) {
+    // Causal: an event is an aftershock if an EARLIER event with >= magnitude has it inside its G-K window.
+    let asc = eqsNewestFirst.slice().reverse();
+    let active = [];
+    let keep = [];
+    for (let i = 0; i < asc.length; i++) {
+        let ev = asc[i];
+        active = active.filter(a => a.end > ev.time);
+        let isAfter = false;
+        for (let k = 0; k < active.length; k++) {
+            let a = active[k];
+            if (a.mag >= ev.mag && haversineDistance(ev.lat, ev.lon, a.lat, a.lon) <= a.km) { isAfter = true; break; }
+        }
+        if (!isAfter) keep.push(ev);
+        let w = gkWindow(ev.mag);
+        active.push({ end: ev.time + w.ms, km: w.km, mag: ev.mag, lat: ev.lat, lon: ev.lon });
+    }
+    return keep.reverse();
+}
+
+function gaiaMergeEqs(...arrays) {
+    let map = new Map();
+    arrays.forEach(arr => {
+        if (arr) arr.forEach(eq => {
+            let sig = eq.id ? String(eq.id) : `${eq.lat.toFixed(2)}_${eq.lon.toFixed(2)}_${eq.time}`;
+            map.set(sig, eq);
+        });
+    });
+    let sorted = Array.from(map.values()).sort((a, b) => b.time - a.time);
+    // Drop USGS/EMSC twins (same quake, different id): <5 min and <2 deg apart -> keep the stronger one
+    let kept = [];
+    for (let i = 0; i < sorted.length; i++) {
+        let eq = sorted[i];
+        let dup = false;
+        for (let j = kept.length - 1; j >= 0 && (kept[j].time - eq.time) < 300000; j--) {
+            if (Math.hypot(eq.lat - kept[j].lat, eq.lon - kept[j].lon) < 2.0) {
+                dup = true;
+                if (eq.mag > kept[j].mag) kept[j] = eq;
+                break;
+            }
+        }
+        if (!dup) kept.push(eq);
+    }
+    return kept;
+}
+
+let _gaiaDS = { sig: '', all: [], m5: [], m7: [], m8: [] };
+let _gaiaStatCache = new Map();
+
+function gaiaDatasets() {
+    let sig = [
+        globalMonthEqs.length, globalMonthEqs.length ? globalMonthEqs[0].id : '',
+        earthquakes.length, earthquakes.length ? earthquakes[0].id : '',
+        historicalM5Eqs.length, historicalM7Eqs.length, historicalM8Eqs.length
+    ].join('|');
+    if (sig !== _gaiaDS.sig) {
+        let all = gaiaMergeEqs(globalMonthEqs, earthquakes);
+        _gaiaDS = {
+            sig: sig,
+            all: all,
+            m5: gaiaMergeEqs(all, historicalM5Eqs),
+            m7: gaiaMergeEqs(all, historicalM7Eqs),
+            m8: gaiaMergeEqs(all, historicalM8Eqs)
+        };
+        _gaiaStatCache.clear();
+    }
+    return _gaiaDS;
+}
+
+function gaiaStatsFor(eqsNewestFirst, declusterIt) {
+    let list = declusterIt ? declusterGK(eqsNewestFirst) : eqsNewestFirst;
+    if (list.length < 3) return null;
+    let gaps = computeGaps(list);
+    let medGap = median(gaps);
+    let emaGap = exponentialWeightedAvg(gaps, 0.3);
+    let rawGap = medGap * 0.6 + emaGap * 0.4;
+    let effGap = rawGap / gaiaChargeMultiplier;
+    let last = eqsNewestFirst[0];
+    return {
+        n: list.length, rawGap: rawGap, effGap: effGap,
+        sigma: stdDev(gaps), lastEq: last,
+        nextTime: last.time + effGap
+    };
+}
+
+// kind: 3|4|5|6|7|8 (magnitude class) or 'deep' (depth >= 150 km)
+// windowMs: optional look-back window (used for M3+/deep sidebar rows)
+function gaiaClass(kind, windowMs) {
+    let ds = gaiaDatasets();
+    let key = kind + '|' + (windowMs || 0) + '|' + gaiaChargeMultiplier.toFixed(3) + '|' + Math.floor(Date.now() / 60000);
+    if (_gaiaStatCache.has(key)) return _gaiaStatCache.get(key);
+    let src, decl = false;
+    if (kind === 'deep') {
+        src = ds.all.filter(e => e.depth >= 150.0);
+    } else {
+        let base = kind >= 8 ? ds.m8 : (kind >= 7 ? ds.m7 : (kind >= 5 ? ds.m5 : ds.all));
+        src = base.filter(e => e.mag >= kind);
+        decl = kind >= 5;
+    }
+    if (windowMs) {
+        let cutoff = Date.now() - windowMs;
+        src = src.filter(e => e.time >= cutoff);
+    }
+    let st = src.length >= 3 ? gaiaStatsFor(src, decl) : null;
+    if (_gaiaStatCache.size > 200) _gaiaStatCache.clear();
+    _gaiaStatCache.set(key, st);
+    return st;
+}
+
+// Overwrites every sidebar / bar countdown with the unified engine result.
+// Sidebar M5+/M7+ rows use the same class sample as the Rhythm Matrix (a 7d/30d sample of M7+ has 0-2 events).
+let _gaiaLastRecalc = 0;
+function gaiaRecomputeAll(force) {
+    let nowMs = Date.now();
+    if (!force && nowMs - _gaiaLastRecalc < 5000) return;
+    _gaiaLastRecalc = nowMs;
+    let D = 86400000;
+    let set = (cur, st) => (st && st.nextTime > 0) ? st.nextTime : cur;
+    predictedNextTime24h   = set(predictedNextTime24h,   gaiaClass(3, 1 * D));
+    predictedNextTime24hM4 = set(predictedNextTime24hM4, gaiaClass(4, 1 * D));
+    predictedNextTime7d    = set(predictedNextTime7d,    gaiaClass(3, 7 * D));
+    predictedNextTime30d   = set(predictedNextTime30d,   gaiaClass(3, 30 * D));
+    predictedNextTime7dMag5  = predictedNextTime30dMag5 = set(predictedNextTime7dMag5, gaiaClass(5));
+    predictedNextTime7dMag7  = predictedNextTime30dMag7 = set(predictedNextTime7dMag7, gaiaClass(7));
+    predictedNextTime7dDeep  = set(predictedNextTime7dDeep,  gaiaClass('deep', 7 * D));
+    predictedNextTime30dDeep = set(predictedNextTime30dDeep, gaiaClass('deep', 30 * D));
+}
+
 function updatePrediction() {
+    gaiaRecomputeAll();
     let renderCountdown = (id, predictedTime, normalColor) => {
         const el = document.getElementById(id);
         if (el && predictedTime > 0) {
@@ -361,12 +509,23 @@ function playDeepBeep() {
 }
 
 function resize() {
-    width = window.innerWidth;
-    height = window.innerHeight;
+    // The map canvas sits BELOW the dashboard strip and LEFT of the RECENT list (see style.css)
+    let strip = document.getElementById('dashboard-strip');
+    if (strip) {
+        let sb = strip.getBoundingClientRect().bottom;
+        if (sb > 0) document.documentElement.style.setProperty('--strip-h', Math.ceil(sb) + 'px');
+    }
+    let r = canvas.getBoundingClientRect();
+    width = Math.max(100, Math.round(r.width || window.innerWidth));
+    height = Math.max(100, Math.round(r.height || window.innerHeight));
     canvas.width = width;
     canvas.height = height;
 }
 window.addEventListener('resize', resize);
+if (typeof ResizeObserver !== 'undefined') {
+    let stripEl = document.getElementById('dashboard-strip');
+    if (stripEl) new ResizeObserver(() => resize()).observe(stripEl);
+}
 resize();
 
 async function fetchSchumannData() {
@@ -380,18 +539,20 @@ async function fetchSchumannData() {
             let elKp = document.getElementById('sr-kp-val');
             if(elKp) elKp.textContent = kpVal.toFixed(2);
             
-            // SCIENTIFIC CORRELATION MULTIPLIERS (Based on 5-Year GFZ/USGS Analysis for M6.0+)
-            // Baseline 1.0x. 
-            // Kp 0-3 (Low): ~0.79x
-            // Kp 3-5 (Moderate): ~1.37x
-            // Kp >5 (High): ~1.96x
+            // RE-VALIDATED CORRELATION MULTIPLIERS (analyze_gaia_v2.py, 2005-2024, M6.0+ mainshocks,
+            // aftershocks removed, identical Kp window for days and quakes, circular-shift permutation test).
+            // Result: no significant effect (best lag p = 0.33; high-Kp ~1.1x, within noise).
+            // The former 0.79x / 1.37x / 1.96x came from comparing different Kp windows (artefact).
+            // We therefore keep only a tiny, shrunk tilt so that the 'Gaia charge' stays a
+            // curiosity-level modifier and does not distort the rhythm predictions:
+            // Kp 0-3: 0.98x | Kp 3-5: 1.00x | Kp >5: up to 1.10x
             let charge = 1.0;
             if (kpVal <= 3.0) {
-                charge = 0.79 + (kpVal / 3.0) * 0.21; // Scales from 0.79 to 1.0
+                charge = 0.98 + (kpVal / 3.0) * 0.02;   // 0.98 -> 1.00
             } else if (kpVal <= 5.0) {
-                charge = 1.0 + ((kpVal - 3.0) / 2.0) * 0.37; // Scales from 1.0 to 1.37
+                charge = 1.0;
             } else {
-                charge = 1.37 + ((kpVal - 5.0) / 4.0) * 0.63; // Scales from 1.37 to ~2.0
+                charge = 1.0 + Math.min(1.0, (kpVal - 5.0) / 4.0) * 0.10; // 1.00 -> 1.10
             }
             gaiaChargeMultiplier = charge;
             
@@ -405,10 +566,10 @@ async function fetchSchumannData() {
             if(elSrKp) elSrKp.textContent = kpVal.toFixed(2);
             
             if(elImp) {
-                if(charge > 1.5) {
-                    elImp.textContent = "High Tension";
+                if(kpVal >= 5.0) {
+                    elImp.textContent = "Geomagnetic Storm";
                     elImp.style.color = "#ff3333";
-                } else if(charge > 1.1) {
+                } else if(kpVal >= 4.0) {
                     elImp.textContent = "Elevated";
                     elImp.style.color = "#ffaa00";
                 } else {
@@ -689,6 +850,7 @@ async function fetchEarthquakes() {
             if (reg24m4) reg24m4.textContent = getBestRegionM4(eqsM4.length);
         }
         
+        gaiaRecomputeAll(true);
         updatePrediction();
         
         statusDiv.textContent = `${earthquakes.length} earthquakes mapped.`;
@@ -921,6 +1083,7 @@ async function fetchLongTermStats() {
         updateText('stat-30d-deep', stats30d.deep);
         updateText('stat-30d-region', stats30d.region);
         
+        gaiaRecomputeAll(true);
         updatePrediction();
         
     } catch(e) {
@@ -1153,19 +1316,16 @@ function updateGaiaPopup() {
         return `${mins}m`;
     };
     
-    let calcRhythm = (eqArray, minMag) => {
-        let filtered = eqArray.filter(e => e.mag >= minMag);
-        if (filtered.length < 2) return null;
+    // Unified engine: identical numbers to the sidebar countdowns (see gaiaClass)
+    let calcRhythm = (kind) => {
+        let st = gaiaClass(kind);
+        if (!st) return null;
         
-        let lastEq = filtered[0];
+        let lastEq = st.lastEq;
         let timeSinceLast = now - lastEq.time;
-        
-        // Compute gaps and use advanced statistics
-        let gaps = computeGaps(filtered);
-        let medGap = median(gaps);
-        let emaGap = exponentialWeightedAvg(gaps, 0.3);
-        let avgGapMs = medGap * 0.6 + emaGap * 0.4; // Blended
-        let sigma = stdDev(gaps);
+        let avgGapMs = st.effGap; // median/EMA blend, already divided by the Gaia (Kp) charge
+        let sigma = st.sigma;
+        let filtered = { length: st.n };
         
         // Confidence: low sigma relative to avg = high confidence
         let cv = avgGapMs > 0 ? sigma / avgGapMs : 1; // Coefficient of variation
@@ -1203,31 +1363,12 @@ function updateGaiaPopup() {
         };
     };
     
-    let mergeEqs = (arr1, arr2) => {
-        let map = new Map();
-        let addToMap = (arr) => {
-            if (arr) arr.forEach(eq => {
-                let sig = eq.id ? String(eq.id) : `${eq.lat.toFixed(2)}_${eq.lon.toFixed(2)}_${eq.time}`;
-                map.set(sig, eq);
-            });
-        };
-        addToMap(arr1);
-        addToMap(arr2);
-        return Array.from(map.values()).sort((a,b) => b.time - a.time);
-    };
-    
-    let combinedAll = mergeEqs(globalMonthEqs, earthquakes);
-    
-    let combinedM5 = mergeEqs(combinedAll, historicalM5Eqs);
-    let combinedM7 = mergeEqs(combinedAll, historicalM7Eqs);
-    let combinedM8 = mergeEqs(combinedAll, historicalM8Eqs);
-    
-    let m3Stats = calcRhythm(combinedAll, 3.0);
-    let m4Stats = calcRhythm(combinedAll, 4.0);
-    let m5Stats = calcRhythm(combinedM5, 5.0);
-    let m6Stats = calcRhythm(combinedM5, 6.0);
-    let m7Stats = calcRhythm(combinedM7, 7.0);
-    let m8Stats = calcRhythm(combinedM8, 8.0);
+    let m3Stats = calcRhythm(3);
+    let m4Stats = calcRhythm(4);
+    let m5Stats = calcRhythm(5);
+    let m6Stats = calcRhythm(6);
+    let m7Stats = calcRhythm(7);
+    let m8Stats = calcRhythm(8);
     
     let html = `<table style="width:100%; border-collapse: collapse; text-align: left; font-size: 12px;">
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.25); color:#aaa;">
@@ -1274,7 +1415,7 @@ function updateGaiaPopup() {
     let m9Gaps = computeGaps(m9Events);
     let m9AvgGap = median(m9Gaps);
     let m9Ratio = m9TimeSince / m9AvgGap;
-    let m9Prob = poissonProbability(m9AvgGap, m9TimeSince);
+    let m9Prob = poissonProbability(m9AvgGap / gaiaChargeMultiplier, m9TimeSince);
     let m9Status, m9StatusColor;
     if (m9Ratio < 0.7) { m9Status = 'Resting Phase'; m9StatusColor = '#00ff88'; }
     else if (m9Ratio < 1.0) { m9Status = 'Building Energy'; m9StatusColor = '#ff8800'; }
@@ -1298,13 +1439,22 @@ function updateGaiaPopup() {
     }
     
     statsDiv.innerHTML = html;
+    let stripStats = document.getElementById('gaia-strip-stats');
+    if (stripStats) stripStats.innerHTML = html;
 }
 
-// Update live every second if visible
-setInterval(() => {
-    if (gaiaPopup && !gaiaPopup.classList.contains('hidden')) {
+// Matrix card in the dashboard strip opens the detailed explanation popup
+let gaiaMatrixCard = document.getElementById('gaia-matrix-card');
+if (gaiaMatrixCard) {
+    gaiaMatrixCard.addEventListener('click', () => {
+        if (gaiaPopup) gaiaPopup.classList.remove('hidden');
         updateGaiaPopup();
-    }
+    });
+}
+
+// Update live every second (the strip matrix is always visible)
+setInterval(() => {
+    updateGaiaPopup();
 }, 1000);
 
 // Window resize handler for diagram
@@ -1912,7 +2062,7 @@ function selectEqFromList(eq) {
     
     stopAutopilot(true);
     
-    showEqPopup(eq, width / 2, height / 2);
+    { let cr = canvas.getBoundingClientRect(); showEqPopup(eq, cr.left + width / 2, cr.top + height / 2); }
 }
 
 function hideEqPopup() {
@@ -1956,7 +2106,7 @@ function findEqAtPoint(clientX, clientY) {
 // Controls
 document.getElementById('btn-zoomin').addEventListener('click', () => { zoom *= 1.3; });
 document.getElementById('btn-zoomout').addEventListener('click', () => { zoom /= 1.3; if(zoom < 0.2) zoom = 0.2; });
-document.getElementById('btn-reset').addEventListener('click', () => { zoom = 0.77; offsetX = 0; offsetY = -120; hideEqPopup(); });
+document.getElementById('btn-reset').addEventListener('click', () => { zoom = 0.77; offsetX = 0; offsetY = 0; hideEqPopup(); });
 
 // Popup close button
 document.getElementById('eq-popup-close').addEventListener('click', (e) => {
@@ -2286,7 +2436,7 @@ function startAutopilot() {
                 
                 // Recenter and reset zoom (like the reset button)
                 offsetX = 0;
-                offsetY = -120;
+                offsetY = 0;
                 zoom = 0.77;
                 
                 hideEqPopup();
@@ -2391,3 +2541,35 @@ try {
     if (viewerCountEl) viewerCountEl.textContent = "ERR: Init";
     console.log("Firebase not configured correctly yet:", e);
 }
+
+// ==========================================
+// HOTSPOTS (computed on the server, the browser only loads the small JSON)
+// ==========================================
+async function loadHotspots() {
+    try {
+        let res = await fetch('hotspots.json?t=' + Math.floor(Date.now() / 3600000));
+        if (!res.ok) return;
+        let data = await res.json();
+        if (!data.hotspots) return;
+        for (let i = 0; i < 3; i++) {
+            let h = data.hotspots[i];
+            let n = document.getElementById('hotspot-' + (i + 1) + '-name');
+            let p = document.getElementById('hotspot-' + (i + 1) + '-p');
+            if (!h || !n || !p) continue;
+            n.textContent = h.name;
+            n.style.maxWidth = '120px';
+            n.style.overflow = 'hidden';
+            n.style.textOverflow = 'ellipsis';
+            p.textContent = Math.round(h.p7d * 100) + '%';
+            p.style.color = '#ffcc00';
+            p.style.fontWeight = 'bold';
+        }
+        let card = document.getElementById('hotspot-card');
+        if (card) card.title += ' Model: ' + data.model + ' | updated ' + data.generated +
+            ' | backtest hit rate of the top-5 hotspots: ' + Math.round(data.backtest_hit_rate * 100) + '%.';
+    } catch (e) {
+        console.log('hotspots.json not available:', e);
+    }
+}
+loadHotspots();
+setInterval(loadHotspots, 3600000);
