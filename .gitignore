@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+hotspot_catalog_cache*
+*.cache*
+gaia_archive.csv
