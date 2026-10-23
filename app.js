@@ -40,6 +40,7 @@ let predictedNextTime30dMag7 = 0;
 let predictedNextTime7dDeep = 0;
 let predictedNextTime30dDeep = 0;
 let gaiaChargeMultiplier = 1.0;
+let currentKpValue = 0;
 
 let globalMonthEqs = [];
 let historicalM5Eqs = [];
@@ -82,6 +83,22 @@ function calculateShockRadius(mag) {
     if (mag < 3) return 0;
     return 100 * Math.pow(3, (mag - 3));
 }
+
+function formatDuration(ms, showSecs = true) {
+    if (!ms || ms <= 0) return "0m";
+    let secs = Math.floor(ms / 1000);
+    let d = Math.floor(secs / 86400);
+    let h = Math.floor((secs % 86400) / 3600);
+    let m = Math.floor((secs % 3600) / 60);
+    let s = secs % 60;
+    if (d > 0) return `${d}d ${h}h` + (m > 0 ? ` ${m}m` : '');
+    if (h > 0) return `${h}h ${m}m` + (showSecs && h < 6 ? ` ${s}s` : '');
+    if (m > 0) return `${m}m` + (showSecs ? ` ${s}s` : '');
+    return `${s}s`;
+}
+
+let shortTermStat = null;
+let shortTermM4Stat = null;
 
 // --- Advanced Statistical Functions ---
 function median(arr) {
@@ -252,8 +269,13 @@ function gaiaStatsFor(eqsNewestFirst, declusterIt) {
     let rawGap = medGap * 0.6 + emaGap * 0.4;
     let effGap = rawGap / gaiaChargeMultiplier;
     let last = eqsNewestFirst[0];
+    let p50Gap = Math.round(Math.LN2 * effGap);
+    let p90Gap = Math.round(2.302585 * effGap);
     return {
         n: list.length, rawGap: rawGap, effGap: effGap,
+        p50Gap: p50Gap, p90Gap: p90Gap,
+        p50Time: last.time + p50Gap,
+        p90Time: last.time + p90Gap,
         sigma: stdDev(gaps), lastEq: last,
         nextTime: last.time + effGap
     };
@@ -362,6 +384,44 @@ function updatePrediction() {
     
     renderCountdown('stat-7d-deep-avg', predictedNextTime7dDeep, '#88bbff');
     renderCountdown('stat-30d-deep-avg', predictedNextTime30dDeep, '#88bbff');
+
+    // Poisson Interval updates & tooltips
+    let renderInterval = (elemId, stat) => {
+        let el = document.getElementById(elemId);
+        if (!el) return;
+        if (stat && stat.p50Gap && stat.p90Gap) {
+            let p50Str = formatDuration(stat.p50Gap, false);
+            let p90Str = formatDuration(stat.p90Gap, false);
+            el.textContent = `P50: ~${p50Str} · P90: ~${p90Str}`;
+            let elapsed = stat.lastEq ? Math.max(0, Date.now() - stat.lastEq.time) : 0;
+            let pElapsed = Math.min(99.9, (1 - Math.exp(-elapsed / stat.effGap)) * 100);
+            el.title = `Poisson-Intervall: 50% Chance innerhalb ${p50Str}, 90% innerhalb ${p90Str}.\nAktuelle Wahrscheinlichkeit seit letztem Beben: ${pElapsed.toFixed(1)}% (Gaia: ${gaiaChargeMultiplier.toFixed(2)}x)\nKlicken für Formel-Details.`;
+        } else {
+            el.textContent = 'P50: ... · P90: ...';
+        }
+    };
+
+    let D = 86400000;
+    let stGlobal = gaiaClass(3, 1 * D);
+    let stGlobalM4 = gaiaClass(4, 1 * D);
+
+    renderInterval('pred-interval-short', shortTermStat);
+    renderInterval('pred-interval-global', stGlobal);
+    renderInterval('pred-interval-short-m4', shortTermM4Stat);
+    renderInterval('pred-interval-global-m4', stGlobalM4);
+
+    let setTooltip = (id, stat, label) => {
+        let el = document.getElementById(id);
+        if (el && stat) {
+            let elapsed = stat.lastEq ? Math.max(0, Date.now() - stat.lastEq.time) : 0;
+            let curP = Math.min(99.9, (1 - Math.exp(-elapsed / stat.effGap)) * 100);
+            el.title = `${label}: Erwartet in ~${formatDuration(stat.effGap, false)} (P50: ~${formatDuration(stat.p50Gap, false)}, P90: ~${formatDuration(stat.p90Gap, false)}).\nWahrscheinlichkeit aktuell: ${curP.toFixed(1)}% | Gaia: ${gaiaChargeMultiplier.toFixed(2)}x (Klicken für Details)`;
+        }
+    };
+    setTooltip('prediction-timer', shortTermStat, 'M3+ Short');
+    setTooltip('prediction-timer-24h', stGlobal, 'M3+ Global 24h');
+    setTooltip('prediction-timer-m4', shortTermM4Stat, 'M4+ Short');
+    setTooltip('prediction-timer-24h-m4', stGlobalM4, 'M4+ Global 24h');
 }
 setInterval(updatePrediction, 1000);
 
@@ -536,6 +596,7 @@ async function fetchSchumannData() {
         let lastEntry = data[data.length - 1];
         let kpVal = parseFloat(lastEntry.Kp);
         if(!isNaN(kpVal)) {
+            currentKpValue = kpVal;
             let elKp = document.getElementById('sr-kp-val');
             if(elKp) elKp.textContent = kpVal.toFixed(2);
             
@@ -745,13 +806,29 @@ async function fetchEarthquakes() {
             let medGap = median(gaps);
             let emaGap = exponentialWeightedAvg(gaps, 0.35);
             // Blend: 60% median (stable), 40% EMA (reactive)
-            let blendedGap = (medGap * 0.6 + emaGap * 0.4) / gaiaChargeMultiplier;
-            return eqList[0].time + blendedGap;
+            let rawGap = medGap * 0.6 + emaGap * 0.4;
+            let effGap = rawGap / gaiaChargeMultiplier;
+            let last = eqList[0];
+            let p50Gap = Math.round(Math.LN2 * effGap);
+            let p90Gap = Math.round(2.302585 * effGap);
+            return {
+                n: clustered.length,
+                rawGap: rawGap,
+                effGap: effGap,
+                p50Gap: p50Gap,
+                p90Gap: p90Gap,
+                p50Time: last.time + p50Gap,
+                p90Time: last.time + p90Gap,
+                sigma: stdDev(gaps),
+                lastEq: last,
+                nextTime: last.time + effGap
+            };
         };
 
         // Short-term prediction using smart method
         if (earthquakes.length >= 3) {
-            predictedNextTime = getSmartPrediction(earthquakes);
+            shortTermStat = getSmartPrediction(earthquakes);
+            predictedNextTime = shortTermStat ? shortTermStat.nextTime : 0;
         }
         
         // Calculate Hemisphere Stats (24H)
@@ -766,30 +843,16 @@ async function fetchEarthquakes() {
             ewElem.textContent = `${ne.length + se.length} vs ${nw.length + sw.length}`;
         }
         
-        // Global 24h prediction (median-based)
-        if (earthquakes.length > 2) {
-            let gaps24 = computeGaps(earthquakes);
-            let medGap24 = median(gaps24);
-            let emaGap24 = exponentialWeightedAvg(gaps24, 0.3);
-            let blended24 = medGap24 * 0.6 + emaGap24 * 0.4;
-            predictedNextTime24h = earthquakes[0].time + blended24;
-        }
-        
         let eqsM4 = earthquakes.filter(eq => eq.mag >= 4.0);
         
         // M4+ short-term (smart prediction)
         if (eqsM4.length >= 3) {
-            predictedNextTimeM4 = getSmartPrediction(eqsM4);
+            shortTermM4Stat = getSmartPrediction(eqsM4);
+            predictedNextTimeM4 = shortTermM4Stat ? shortTermM4Stat.nextTime : 0;
         }
-        
-        // M4+ global 24h (median-based)
-        if (eqsM4.length > 2) {
-            let gapsM4 = computeGaps(eqsM4);
-            let medGapM4 = median(gapsM4);
-            let emaGapM4 = exponentialWeightedAvg(gapsM4, 0.3);
-            let blendedM4 = medGapM4 * 0.6 + emaGapM4 * 0.4;
-            predictedNextTime24hM4 = eqsM4[0].time + blendedM4;
-        }
+
+        // Global 24h & matrix recalculation
+        gaiaRecomputeAll(true);
         
         // Calculate predicted region
         if (earthquakes.length > 0) {
@@ -1484,110 +1547,86 @@ document.addEventListener('click', (e) => {
     if (eqPopup && !eqPopup.classList.contains('hidden')) eqPopup.classList.add('hidden');
     
     let calcType = stat.getAttribute('data-calc');
-        let title = "Calculation";
-        let desc = "";
-        let mathStr = "";
-        
-        // Position the popup based on mouse click
-        let popupW = 310;
-        let popupH = 260; // Approximate height
-        let px = Math.max(popupW / 2 + 5, Math.min(e.clientX, window.innerWidth - popupW / 2 - 5));
-        let py = e.clientY;
-        
-        if (py < popupH + 30) {
-            calcPopup.style.transform = 'translate(-50%, 18px)';
-        } else {
-            calcPopup.style.transform = 'translate(-50%, -100%) translateY(-18px)';
-        }
-        calcPopup.style.left = px + 'px';
-        calcPopup.style.top = py + 'px';
-        
-        let now = Date.now();
-    let formatDur = (ms) => {
-        let hrs = Math.floor(ms/3600000);
-        let mins = Math.floor((ms%3600000)/60000);
-        return `${hrs}h ${mins}m`;
-    };
+    let title = "Calculation";
+    let desc = "";
+    let mathStr = "";
     
+    let now = Date.now();
+    let formatDur = (ms) => formatDuration(ms, false);
     let formatTime = (ts) => {
         let d = new Date(ts);
-        return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0') + ' (Local)';
+        return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0') + ':' + d.getSeconds().toString().padStart(2,'0') + ' (Local)';
     };
     
-    if (calcType === 'short' || calcType === 'short-m4') {
-        let isM4 = calcType === 'short-m4';
-        let eqs = isM4 ? earthquakes.filter(eq => eq.mag >= 4.0) : earthquakes;
-        let limit = Math.min(5, eqs.length);
-        if (limit < 2) {
-            desc = "Nicht genug Daten in den letzten 24h.";
-        } else {
-            let totalDiff = 0;
-            for (let i = 0; i < limit - 1; i++) {
-                totalDiff += Math.abs(eqs[i].time - eqs[i+1].time);
-            }
-            let avgDiff = totalDiff / (limit - 1);
-            let nextTime = eqs[0].time + avgDiff;
-            let timeAgo = now - eqs[0].time;
-            
-            title = isM4 ? "M4.0+ Short-Term (Last 5)" : "M3.0+ Short-Term (Last 5)";
-            desc = `We calculate the time intervals between the last ${limit} earthquakes in this category. The average of these intervals is added to the time of the most recent earthquake to forecast the next statistical release..`;
-            mathStr = `Last ${limit} Earthquake analyzed.\n` +
-                      `Average-Intervall: ${formatDur(avgDiff)}\n\n` +
-                      `last Earthquake: ${formatTime(eqs[0].time)} (${formatDur(timeAgo)} ago)\n` +
-                      `Forecast period: ${formatTime(nextTime)}\n`;
-        }
-    } else if (calcType === 'global' || calcType === 'global-m4') {
-        let isM4 = calcType === 'global-m4';
-        let eqs = isM4 ? earthquakes.filter(eq => eq.mag >= 4.0) : earthquakes;
-        if (eqs.length < 2) {
-            desc = "not enough data.";
-        } else {
-            let oldest = eqs[eqs.length - 1].time;
-            let newest = eqs[0].time;
-            let timeSpan = newest - oldest;
-            let avgDiff = timeSpan / (eqs.length - 1);
-            let nextTime = newest + avgDiff;
-            
-            title = isM4 ? "M4.0+ Global (24H)" : "M3.0+ Global (24H)";
-            desc = `We calculate the time intervals between ALL earthquakes (${eqs.length} in total) in this category over the last 24 hours. The global average interval is added to the time of the most recent earthquake.`;
-            mathStr = `Number of earthquakes (24h): ${eqs.length}\n` +
-                      `Global average: ${formatDur(avgDiff)}\n\n` +
-                      `Final Tremor: ${formatTime(newest)}\n` +
-                      `Forecast period: ${formatTime(nextTime)}\n`;
-        }
-    } else if (calcType && calcType.startsWith('7d') || calcType && calcType.startsWith('30d')) {
-        let is30 = calcType.startsWith('30d');
-        let typeStr = "M3.0+";
-        if (calcType.includes('mag5')) typeStr = "M5.0+";
-        if (calcType.includes('mag7')) typeStr = "M7.0+";
-        if (calcType.includes('deep')) typeStr = "Deep (>150km)";
+    let statObj = null;
+    let D = 86400000;
+    if (calcType === 'short') {
+        statObj = shortTermStat;
+        title = "M3.0+ Short-Term (Poisson-Modell)";
+        desc = "Lokale Cluster-Berechnung der jüngsten Hauptbeben mit Gardner-Knopoff-Entclusterung zur Vermeidung von Nachbeben-Verzerrungen, moduliert durch geomagnetische Sonnenaktivität (NOAA Kp / Gaia-Ladung).";
+    } else if (calcType === 'short-m4') {
+        statObj = shortTermM4Stat;
+        title = "M4.0+ Short-Term (Poisson-Modell)";
+        desc = "Lokale Cluster-Berechnung für M4.0+ Hauptbeben mit Entclusterung zur Vermeidung von Nachbeben-Verzerrungen, moduliert durch geomagnetische Sonnenaktivität (NOAA Kp / Gaia-Ladung).";
+    } else if (calcType === 'global') {
+        statObj = gaiaClass(3, 1 * D);
+        title = "M3.0+ Global 24H (Poisson-Modell)";
+        desc = "Globaler 24h-Rhythmus über alle weltweiten M3.0+ Hauptbeben (gewichteter Median + EMA), korrigiert um geomagnetische Ladungsraten.";
+    } else if (calcType === 'global-m4') {
+        statObj = gaiaClass(4, 1 * D);
+        title = "M4.0+ Global 24H (Poisson-Modell)";
+        desc = "Globaler 24h-Rhythmus über alle weltweiten M4.0+ Hauptbeben (gewichteter Median + EMA), korrigiert um geomagnetische Ladungsraten.";
+    } else if (calcType === '7d') {
+        statObj = gaiaClass(3, 7 * D);
+        title = "M3.0+ Langzeit (7 Tage)";
+        desc = "Globale 7-Tage-Historie aus dem USGS-Feed mit Rhythmus-Glättung und Gaia-Modifikation.";
+    } else if (calcType === '30d') {
+        statObj = gaiaClass(3, 30 * D);
+        title = "M3.0+ Langzeit (30 Tage)";
+        desc = "Globale 30-Tage-Historie aus dem USGS-Feed mit Rhythmus-Glättung und Gaia-Modifikation.";
+    } else if (calcType === '7d-mag5' || calcType === '30d-mag5') {
+        statObj = gaiaClass(5);
+        title = "M5.0+ Schwere Erdbeben";
+        desc = "Globale M5.0+ Rhythmus-Matrix (entclustert nach Gardner-Knopoff, nur unabhängige Hauptbeben) mit Poisson-Intervallen.";
+    } else if (calcType === '7d-mag7' || calcType === '30d-mag7') {
+        statObj = gaiaClass(7);
+        title = "M7.0+ Großbeben (Mega-Thrust)";
+        desc = "Globale M7.0+ Rhythmus-Matrix über den historischen USGS-Katalog mit Poisson-Intervallen.";
+    } else if (calcType === '7d-deep' || calcType === '30d-deep') {
+        statObj = gaiaClass('deep', (calcType.startsWith('30d') ? 30 : 7) * D);
+        title = "Tiefe Mantelbeben (>150 km)";
+        desc = "Statistische Entladungsintervalle tiefer subduzierter Plattenausgleiche (>150 km Tiefe).";
+    }
+
+    if (statObj && statObj.effGap) {
+        let elapsed = statObj.lastEq ? Math.max(0, now - statObj.lastEq.time) : 0;
+        let curProb = Math.min(99.9, (1 - Math.exp(-elapsed / statObj.effGap)) * 100);
         
-        title = `Long-Term Stats (${is30 ? '30 Days' : '7 Days'} / ${typeStr})`;
-        desc = `Here we take all historical data from the last ${is30 ? '30' : '7'} ...days for the selected category. The total time span between the first and last earthquake of these days is divided by the number of intervals to obtain a highly precise, global average interval.`;
-        
-        let predictedTimeVar = predictedNextTime7d;
-        if (calcType === '7d-mag5') predictedTimeVar = predictedNextTime7dMag5;
-        if (calcType === '7d-mag7') predictedTimeVar = predictedNextTime7dMag7;
-        if (calcType === '30d') predictedTimeVar = predictedNextTime30d;
-        if (calcType === '30d-mag5') predictedTimeVar = predictedNextTime30dMag5;
-        if (calcType === '30d-mag7') predictedTimeVar = predictedNextTime30dMag7;
-        
-        if (predictedTimeVar === 0) {
-            mathStr = "Calculating data... or insufficient historical data available.";
-        } else {
-            mathStr = `Historical average loaded from USGS feed.\n` +
-                      `Next projected discharge: ${formatTime(predictedTimeVar)}\n\n` +
-                      `(Calculation method: Time of the last earthquake in history + calculated average interval of the last ${is30 ? '30' : '7'} Day)`;
-        }
+        mathStr = 
+`• Datensatz: ${statObj.n} Ereignisse (Hauptbeben)
+• Basis-Intervall: ${formatDur(statObj.rawGap)} (60% Median + 40% EMA)
+• Gaia-Modifikator: ${gaiaChargeMultiplier.toFixed(2)}x (Effektiv: ${formatDur(statObj.effGap)})
+• Letztes Beben: ${statObj.lastEq ? formatTime(statObj.lastEq.time) + ' (vor ' + formatDur(elapsed) + ')' : 'k.A.'}
+• Erwartungswert (Mean): ${formatTime(statObj.nextTime)}
+
+Poisson-Wahrscheinlichkeitsfenster:
+• 50% Konfidenz (P50): ~${formatDur(statObj.p50Gap)} (${formatTime(statObj.p50Time)})
+• 90% Konfidenz (P90): ~${formatDur(statObj.p90Gap)} (${formatTime(statObj.p90Time)})
+• Aktuelle Wahrscheinlichkeit: ${curProb.toFixed(1)}%`;
+    } else {
+        mathStr = "Berechnung läuft oder unzureichende Daten vorhanden.";
     }
     
     document.getElementById('calc-popup-title').textContent = title;
     document.getElementById('calc-popup-desc').innerHTML = desc;
     document.getElementById('calc-popup-math').textContent = mathStr;
     
-    // HIER EINFÜGEN: Schiebt das Fenster rechts neben die Seitenleiste
-    calcPopup.style.left = '360px'; 
-    calcPopup.style.top = Math.max(50, e.clientY - 50) + 'px';
+    let popupW = 380;
+    let px = (e.clientX < 340) ? 350 : Math.max(20, Math.min(window.innerWidth - popupW - 20, e.clientX - popupW / 2));
+    let py = (e.clientX < 340) ? Math.max(60, Math.min(window.innerHeight - 380, e.clientY - 40)) : Math.max(60, Math.min(window.innerHeight - 380, e.clientY + 15));
+    calcPopup.style.left = px + 'px';
+    calcPopup.style.top = py + 'px';
+    calcPopup.style.position = 'fixed';
     calcPopup.style.transform = 'none';
 
     calcPopup.classList.remove('hidden');

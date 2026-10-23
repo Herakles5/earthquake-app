@@ -891,6 +891,23 @@ h3 {
     max-width: 95vw;
 }
 
+#calc-popup {
+    width: 380px;
+    max-width: 92vw;
+    border-color: rgba(0, 255, 204, 0.6);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8), 0 0 20px rgba(0, 255, 204, 0.2);
+    z-index: 1000;
+}
+
+.pred-interval {
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.pred-interval:hover {
+    opacity: 1 !important;
+    text-shadow: 0 0 4px currentColor;
+}
+
 /* Gaia Progress Bars */
 .gaia-progress-bar {
     width: 100%;
