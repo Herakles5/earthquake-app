@@ -145,6 +145,9 @@ def build_status_report(started_list: list, lang: int) -> str:
                     last_dec = decs[-1]
                     dec_gen = last_dec.get("generation", dec_gen)
                     dec_title_de = last_dec.get("title", dec_title_de)
+                    if "Semantic Drift" in dec_title_de:
+                        dec_title_en = "Semantic Drift Monitor & Cognitive Mesh Rewiring"
+                        dec_title_ko = "시맨틱 드리프트 모니터 및 인지 메시 재배선"
         except Exception:
             pass
 

@@ -1,8 +1,8 @@
 {
-  "step": 46,
-  "timestamp": "2026-10-27 14:10:04",
-  "entropy": 0.8162,
-  "gradient": 0.1395,
+  "step": 8,
+  "timestamp": "2026-10-27 15:20:25",
+  "entropy": 0.82,
+  "gradient": -0.0035,
   "ambiguity_density": 1.0,
   "resonant_coupling": 0.2,
   "mode": "CHAOTIC_DAMPING",
