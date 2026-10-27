@@ -699,11 +699,11 @@ function updatePrediction() {
                 let bpt = calculateBPTStrain(elapsed, stat.effGap);
                 el.textContent = `P50: ~${p50Str} · BPT: ${bpt.strain.toFixed(1)}x (${(bpt.pCond1h * 100).toFixed(0)}%/h)`;
                 el.style.color = '#ff6666';
-                el.title = `Poisson-Intervall: P50 ~${p50Str}, P90 ~${p90Str}.\n⚠️ ÜBERFÄLLIG nach BPT/Weibull-Modell:\nAkkumulierter Dehnungsfaktor: ${bpt.strain.toFixed(2)}x\nBedingte Hazard-Rate: ${(bpt.pCond1h * 100).toFixed(1)}%/h\nKlicken für Formel-Details.`;
+                el.title = `Poisson Interval: P50 ~${p50Str}, P90 ~${p90Str}.\n⚠️ OVERDUE (BPT/Weibull Model):\nAccumulated Strain Factor: ${bpt.strain.toFixed(2)}x\nConditional Hazard Rate: ${(bpt.pCond1h * 100).toFixed(1)}%/h\nClick for formula details.`;
             } else {
                 el.textContent = `P50: ~${p50Str} · P90: ~${p90Str}`;
                 el.style.color = '';
-                el.title = `Poisson-Intervall: 50% Chance innerhalb ${p50Str}, 90% innerhalb ${p90Str}.\nAktuelle Wahrscheinlichkeit seit letztem Beben: ${pElapsed.toFixed(1)}% (Gaia: ${gaiaChargeMultiplier.toFixed(2)}x)\nKlicken für Formel-Details.`;
+                el.title = `Poisson Interval: 50% chance within ${p50Str}, 90% within ${p90Str}.\nProbability elapsed since last quake: ${pElapsed.toFixed(1)}% (Gaia: ${gaiaChargeMultiplier.toFixed(2)}x)\nClick for formula details.`;
             }
         } else {
             el.textContent = 'P50: ... · P90: ...';
@@ -721,7 +721,7 @@ function updatePrediction() {
     if (ltEl) {
         ltEl.textContent = `${currentLunarTide.icon} ${currentLunarTide.phaseName} (${currentLunarTide.stressPercent}%)`;
         ltEl.style.color = currentLunarTide.color;
-        ltEl.title = `Mondphase & Feste Erdgezeiten: ${currentLunarTide.phaseName} (${currentLunarTide.icon})\nGravitativer Gezeitenstress: ${currentLunarTide.stressLevel} (${currentLunarTide.stressPercent}%)\nCoulomb-Trigger-Faktor: ${currentLunarTide.multiplier.toFixed(2)}x\n(Klicken für physikalische Details)`;
+        ltEl.title = `Moon Phase & Solid Earth Tides: ${currentLunarTide.phaseName} (${currentLunarTide.icon})\nGravitational Tidal Stress: ${currentLunarTide.stressLevel} (${currentLunarTide.stressPercent}%)\nCoulomb Trigger Factor: ${currentLunarTide.multiplier.toFixed(2)}x\n(Click for physical details)`;
     }
 
     // Update Tectonic Migration Flow in UI
@@ -730,11 +730,11 @@ function updatePrediction() {
         if (activeFlowSummary.count > 0) {
             tfEl.textContent = `${activeFlowSummary.label}`;
             tfEl.style.color = '#ffaa00';
-            tfEl.title = `Tektonischer Rhythmus & Migrationsfluss: ${activeFlowSummary.count} aktive Vektoren (48h)\nDominante Wanderung: ${activeFlowSummary.label}\nLetzter Vektor: ${activeFlowSummary.fromPlace} ➔ ${activeFlowSummary.toPlace}\n(Klicken für Details und Vektoren)`;
+            tfEl.title = `Tectonic Rhythm & Migration Flow: ${activeFlowSummary.count} active vectors (48h)\nDominant Migration: ${activeFlowSummary.label}\nLatest Vector: ${activeFlowSummary.fromPlace} ➔ ${activeFlowSummary.toPlace}\n(Click for details and vectors)`;
         } else {
             tfEl.textContent = 'Equilibrium';
             tfEl.style.color = '#88bbff';
-            tfEl.title = 'Tektonischer Rhythmus: Keine signifikante gerichtete Spannungs-Migration (Gleichgewicht).';
+            tfEl.title = 'Tectonic Rhythm: No significant directional stress migration detected (Equilibrium).';
         }
     }
 
@@ -748,7 +748,7 @@ function updatePrediction() {
                 let bpt = calculateBPTStrain(elapsed, stat.effGap);
                 bptNote = `\n⚠️ BPT-Strain: ${bpt.strain.toFixed(2)}x (+${(bpt.pCond1h * 100).toFixed(1)}%/h)`;
             }
-            el.title = `${label}: Erwartet in ~${formatDuration(stat.effGap, false)} (P50: ~${formatDuration(stat.p50Gap, false)}, P90: ~${formatDuration(stat.p90Gap, false)}).\nWahrscheinlichkeit aktuell: ${curP.toFixed(1)}% | Gaia: ${gaiaChargeMultiplier.toFixed(2)}x${bptNote}\n(Klicken für Details)`;
+            el.title = `${label}: Expected in ~${formatDuration(stat.effGap, false)} (P50: ~${formatDuration(stat.p50Gap, false)}, P90: ~${formatDuration(stat.p90Gap, false)}).\nCurrent Probability: ${curP.toFixed(1)}% | Gaia: ${gaiaChargeMultiplier.toFixed(2)}x${bptNote}\n(Click for details)`;
         }
     };
     setTooltip('prediction-timer', shortTermStat, 'M3+ Short');
@@ -1185,7 +1185,7 @@ async function fetchEarthquakes() {
             if (currentBValue.n >= 5) {
                 bEl.textContent = `${currentBValue.b.toFixed(2)} (${currentBValue.status})`;
                 bEl.style.color = currentBValue.color;
-                bEl.title = `Gutenberg-Richter b-Wert: ${currentBValue.b.toFixed(2)} ± ${currentBValue.sigma.toFixed(2)}\nAnalyse: ${currentBValue.n} Beben (M≥3.0, 24h)\nDurchschnitt: M${currentBValue.avgMag.toFixed(2)}\nStatus: ${currentBValue.status} (Klicken für Details)`;
+                bEl.title = `Gutenberg-Richter b-Value: ${currentBValue.b.toFixed(2)} ± ${currentBValue.sigma.toFixed(2)}\nAnalysis: ${currentBValue.n} quakes (M≥3.0, 24h)\nMean Magnitude: M${currentBValue.avgMag.toFixed(2)}\nStatus: ${currentBValue.status} (Click for details)`;
             } else {
                 bEl.textContent = 'Calculating...';
                 bEl.style.color = '#888888';
@@ -1228,7 +1228,7 @@ async function fetchEarthquakes() {
             let reg5 = document.getElementById('prediction-region-5');
             if (reg5) {
                 reg5.textContent = spat5.label;
-                reg5.title = `Schwarm-Zentrum: ${spat5.lat.toFixed(2)}°, ${spat5.lon.toFixed(2)}° (${spat5.count} von ${spat5.totalSample} Beben)\nKlicken zum Zentrieren auf der Karte.`;
+                reg5.title = `Swarm Centroid: ${spat5.lat.toFixed(2)}°, ${spat5.lon.toFixed(2)}° (${spat5.count} of ${spat5.totalSample} quakes)\nClick to center map.`;
                 reg5.onclick = () => flyToCoords(spat5.lat, spat5.lon);
             }
             
@@ -1236,7 +1236,7 @@ async function fetchEarthquakes() {
             let reg24 = document.getElementById('prediction-region-24h');
             if (reg24) {
                 reg24.textContent = spat24.label;
-                reg24.title = `24h-Aktivitätszentrum: ${spat24.lat.toFixed(2)}°, ${spat24.lon.toFixed(2)}° (${spat24.count} Beben im Cluster)\nKlicken zum Zentrieren auf der Karte.`;
+                reg24.title = `24h Activity Centroid: ${spat24.lat.toFixed(2)}°, ${spat24.lon.toFixed(2)}° (${spat24.count} quakes in cluster)\nClick to center map.`;
                 reg24.onclick = () => flyToCoords(spat24.lat, spat24.lon);
             }
         }
@@ -1246,7 +1246,7 @@ async function fetchEarthquakes() {
             let reg5m4 = document.getElementById('prediction-region-5-m4');
             if (reg5m4) {
                 reg5m4.textContent = spat5m4.label;
-                reg5m4.title = `M4+ Schwarm-Zentrum: ${spat5m4.lat.toFixed(2)}°, ${spat5m4.lon.toFixed(2)}°\nKlicken zum Zentrieren auf der Karte.`;
+                reg5m4.title = `M4+ Swarm Centroid: ${spat5m4.lat.toFixed(2)}°, ${spat5m4.lon.toFixed(2)}°\nClick to center map.`;
                 reg5m4.onclick = () => flyToCoords(spat5m4.lat, spat5m4.lon);
             }
             
@@ -1254,7 +1254,7 @@ async function fetchEarthquakes() {
             let reg24m4 = document.getElementById('prediction-region-24h-m4');
             if (reg24m4) {
                 reg24m4.textContent = spat24m4.label;
-                reg24m4.title = `M4+ 24h-Aktivitätszentrum: ${spat24m4.lat.toFixed(2)}°, ${spat24m4.lon.toFixed(2)}°\nKlicken zum Zentrieren auf der Karte.`;
+                reg24m4.title = `M4+ 24h Activity Centroid: ${spat24m4.lat.toFixed(2)}°, ${spat24m4.lon.toFixed(2)}°\nClick to center map.`;
                 reg24m4.onclick = () => flyToCoords(spat24m4.lat, spat24m4.lon);
             }
         }
@@ -1276,7 +1276,7 @@ const tickerScroll = document.getElementById('ticker-scroll');
 let volcanoData = [];
 let tsunamiData = [];
 
-// Hilfsfunktion für relative Zeitangaben
+// Helper function for relative time formatting
 function getRelativeTime(timestamp) {
     const diffMs = Date.now() - timestamp;
     const diffMins = Math.floor(diffMs / (1000 * 60));
@@ -1286,7 +1286,7 @@ function getRelativeTime(timestamp) {
     return `${diffHours}h ago`;
 }
 
-// Ticker rendern
+// Render ticker items
 function renderTicker() {
     if (!tickerContent) return;
     
@@ -1304,11 +1304,11 @@ function renderTicker() {
     
     tickerContent.innerHTML = html;
     
-    // Setze die Dauer basierend auf der Anzahl der Items (ca. 8 Sekunden pro Item)
+    // Set duration based on number of items (~8 seconds per item)
     const totalItems = tsunamiData.length + volcanoData.length;
-    const duration = Math.max(60, totalItems * 8); // Mindestens 60s
+    const duration = Math.max(60, totalItems * 8); // Minimum 60s
     
-    // Animation zurücksetzen, damit es neu von rechts reinscrollt
+    // Reset animation so it scrolls in cleanly from the right
     if (tickerScroll) {
         tickerScroll.style.animationDuration = `${duration}s`;
         tickerScroll.style.animationName = 'none';
@@ -1317,11 +1317,10 @@ function renderTicker() {
     }
 }
 
-// Echte Live-Daten von USGS laden und aufteilen
+// Fetch live data from USGS and categorize
 async function fetchLiveTickers() {
     try {
-        // Wir nutzen jetzt den Feed für Stärke 4.5+ der letzten 7 Tage,
-        // damit der Ticker immer gut mit signifikanten Events gefüllt ist!
+        // Use the M4.5+ 7-day feed to keep the ticker populated with significant events
         const response = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_week.geojson');
         const data = await response.json();
         
@@ -1334,16 +1333,16 @@ async function fetchLiveTickers() {
                 const place = props.place;
                 const mag = props.mag;
                 const time = props.time;
-                const tsunamiFlag = props.tsunami; // 1 wenn Tsunami-Warnung
+                const tsunamiFlag = props.tsunami; // 1 if tsunami warning
 
-                // Signifikante seismische Events in den Vulkan-/Aktivitäten-Ticker schreiben
+                // Add significant seismic events to activity ticker
                 volcanoData.push({
                     name: place,
                     status: `Seismic Unrest - Mag ${mag.toFixed(1)}`,
                     timestamp: time
                 });
 
-                // Wenn die USGS ein Tsunami-Flag setzt, in den Tsunami-Ticker schreiben
+                // If USGS flags tsunami threat, add to tsunami ticker
                 if (tsunamiFlag === 1) {
                     tsunamiData.push({
                         region: place,
@@ -1353,7 +1352,7 @@ async function fetchLiveTickers() {
                 }
             });
 
-            // Fallback für Tsunami-Ticker, falls weltweit keine Warnung vorliegt
+            // Fallback for tsunami ticker if no active threats worldwide
             if (tsunamiData.length === 0) {
                 tsunamiData.push({
                     region: "Global Tsunami Monitoring",
@@ -1369,15 +1368,15 @@ async function fetchLiveTickers() {
     renderTicker();
 }
 
-// Initialer Aufruf
+// Initial call
 fetchLiveTickers();
 
-// Jede Minute Timer (relative Zeiten) aktualisieren
+// Update relative times every minute
 setInterval(() => {
     renderTicker();
 }, 60000);
 
-// Alle 5 Minuten neue Daten von der API holen
+// Refresh ticker data from API every 5 minutes
 setInterval(fetchLiveTickers, 300000);
 
 async function fetchLongTermStats() {
@@ -1909,43 +1908,43 @@ document.addEventListener('click', (e) => {
     let D = 86400000;
     if (calcType === 'short') {
         statObj = shortTermStat;
-        title = "M3.0+ Short-Term (Poisson-Modell)";
-        desc = "Lokale Cluster-Berechnung der jüngsten Hauptbeben mit Gardner-Knopoff-Entclusterung zur Vermeidung von Nachbeben-Verzerrungen, moduliert durch geomagnetische Sonnenaktivität (NOAA Kp / Gaia-Ladung).";
+        title = "M3.0+ Short-Term (Poisson Model)";
+        desc = "Local cluster analysis of the most recent mainshocks using Gardner-Knopoff declustering to prevent aftershock bias, modulated by space weather and solar geomagnetic activity (NOAA Kp / Gaia Charge).";
     } else if (calcType === 'short-m4') {
         statObj = shortTermM4Stat;
-        title = "M4.0+ Short-Term (Poisson-Modell)";
-        desc = "Lokale Cluster-Berechnung für M4.0+ Hauptbeben mit Entclusterung zur Vermeidung von Nachbeben-Verzerrungen, moduliert durch geomagnetische Sonnenaktivität (NOAA Kp / Gaia-Ladung).";
+        title = "M4.0+ Short-Term (Poisson Model)";
+        desc = "Local cluster analysis for M4.0+ mainshocks with declustering to remove aftershock bias, modulated by space weather and geomagnetic activity (NOAA Kp / Gaia Charge).";
     } else if (calcType === 'global') {
         statObj = gaiaClass(3, 1 * D);
-        title = "M3.0+ Global 24H (Poisson-Modell)";
-        desc = "Globaler 24h-Rhythmus über alle weltweiten M3.0+ Hauptbeben (gewichteter Median + EMA), korrigiert um geomagnetische Ladungsraten.";
+        title = "M3.0+ Global 24H (Poisson Model)";
+        desc = "Global 24-hour rhythm across all worldwide M3.0+ mainshocks (weighted median + EMA), adjusted for geomagnetic charge rates.";
     } else if (calcType === 'global-m4') {
         statObj = gaiaClass(4, 1 * D);
-        title = "M4.0+ Global 24H (Poisson-Modell)";
-        desc = "Globaler 24h-Rhythmus über alle weltweiten M4.0+ Hauptbeben (gewichteter Median + EMA), korrigiert um geomagnetische Ladungsraten.";
+        title = "M4.0+ Global 24H (Poisson Model)";
+        desc = "Global 24-hour rhythm across all worldwide M4.0+ mainshocks (weighted median + EMA), adjusted for geomagnetic charge rates.";
     } else if (calcType === '7d') {
         statObj = gaiaClass(3, 7 * D);
-        title = "M3.0+ Langzeit (7 Tage)";
-        desc = "Globale 7-Tage-Historie aus dem USGS-Feed mit Rhythmus-Glättung und Gaia-Modifikation.";
+        title = "M3.0+ Long-Term (7 Days)";
+        desc = "Global 7-day history from USGS catalog feed with rhythm smoothing and Gaia charge modification.";
     } else if (calcType === '30d') {
         statObj = gaiaClass(3, 30 * D);
-        title = "M3.0+ Langzeit (30 Tage)";
-        desc = "Globale 30-Tage-Historie aus dem USGS-Feed mit Rhythmus-Glättung und Gaia-Modifikation.";
+        title = "M3.0+ Long-Term (30 Days)";
+        desc = "Global 30-day history from USGS catalog feed with rhythm smoothing and Gaia charge modification.";
     } else if (calcType === '7d-mag5' || calcType === '30d-mag5') {
         statObj = gaiaClass(5);
-        title = "M5.0+ Schwere Erdbeben";
-        desc = "Globale M5.0+ Rhythmus-Matrix (entclustert nach Gardner-Knopoff, nur unabhängige Hauptbeben) mit Poisson-Intervallen.";
+        title = "M5.0+ Heavy Earthquakes";
+        desc = "Global M5.0+ rhythm matrix (declustered via Gardner-Knopoff, independent mainshocks only) with Poisson confidence intervals.";
     } else if (calcType === '7d-mag7' || calcType === '30d-mag7') {
         statObj = gaiaClass(7);
-        title = "M7.0+ Großbeben (Mega-Thrust)";
-        desc = "Globale M7.0+ Rhythmus-Matrix über den historischen USGS-Katalog mit Poisson-Intervallen.";
+        title = "M7.0+ Major Earthquakes (Mega-Thrust)";
+        desc = "Global M7.0+ rhythm matrix across historical USGS catalog with Poisson confidence intervals.";
     } else if (calcType === '7d-deep' || calcType === '30d-deep') {
         statObj = gaiaClass('deep', (calcType.startsWith('30d') ? 30 : 7) * D);
-        title = "Tiefe Mantelbeben (>150 km)";
-        desc = "Statistische Entladungsintervalle tiefer subduzierter Plattenausgleiche (>150 km Tiefe).";
+        title = "Deep Mantle Earthquakes (>150 km)";
+        desc = "Statistical discharge intervals of deep subducted tectonic slab adjustments (>150 km depth).";
     } else if (calcType === 'b-value') {
-        title = "Gutenberg-Richter b-Wert & Krustenspannung";
-        desc = "Der Gutenberg-Richter b-Wert (log₁₀ N = a - b·M) ist der zentrale geophysikalische Indikator für den Spannungszustand der Erdkruste. In entspanntem Zustand liegt b ≈ 1.0–1.2 (viele kleine Ausgleiche). Wenn Verwerfungen verhaken (Asperity Locking), sinkt b unter 0.8 ab, da die Kruste unter extremem Druck keine Mikrobeben mehr zulässt – ein klassisches Vorläufer-Signal vor schweren Erdbeben.";
+        title = "Gutenberg-Richter b-Value & Crustal Stress";
+        desc = "The Gutenberg-Richter b-value (log₁₀ N = a - b·M) is the primary geophysical indicator of crustal stress state. In an equilibrium/relaxed state, b ≈ 1.0–1.2 (many small stress releases). When faults become locked (asperity locking), b drops below 0.8 because extreme tectonic pressure suppresses microseismicity – a classic precursor signal prior to major ruptures.";
         
         let bVal = currentBValue;
         let bMonth = (typeof globalMonthEqs !== 'undefined' && globalMonthEqs.length > 20) 
@@ -1953,45 +1952,45 @@ document.addEventListener('click', (e) => {
             : null;
         
         mathStr = 
-`• Methode: Aki-Utsu Maximum Likelihood Estimator (MLE)
-• Datenbasis (24h): ${bVal.n} Erdbeben (M ≥ 3.0)
-• Durchschnitts-Magnitude M̄: M${bVal.avgMag.toFixed(2)}
-• Aktueller b-Wert: ${bVal.b.toFixed(2)} ± ${bVal.sigma.toFixed(2)}
-• Spannungszustand: ${bVal.status.toUpperCase()}
-` + (bMonth && bMonth.n > 20 ? `• 30-Tage Referenzwert (Global M≥4.0): b = ${bMonth.b.toFixed(2)} (${bMonth.n} Beben)\n` : '') +
+`• Method: Aki-Utsu Maximum Likelihood Estimator (MLE)
+• Dataset (24h): ${bVal.n} earthquakes (M ≥ 3.0)
+• Mean Magnitude M̄: M${bVal.avgMag.toFixed(2)}
+• Current b-Value: ${bVal.b.toFixed(2)} ± ${bVal.sigma.toFixed(2)}
+• Stress State: ${bVal.status.toUpperCase()}
+` + (bMonth && bMonth.n > 20 ? `• 30-Day Reference (Global M≥4.0): b = ${bMonth.b.toFixed(2)} (${bMonth.n} quakes)\n` : '') +
 `
 Interpretation:
-  b ≥ 1.15 : Entspannt / Hydrothermal (Geringe Großbeben-Gefahr)
-  0.90-1.14: Normales tektonisches Gleichgewicht
-  0.75-0.89: Erhöhte Verhakung & Spannungsaufbau
-  b < 0.75 : HOHE SPANNUNG (Verwerfungen verriegelt / Locked)`;
+  b ≥ 1.15 : Relaxed / Hydrothermal (Low major quake hazard)
+  0.90-1.14: Normal tectonic equilibrium
+  0.75-0.89: Elevated asperity locking & stress accumulation
+  b < 0.75 : HIGH STRESS (Faults locked / High rupture hazard)`;
     } else if (calcType === 'lunar-tide') {
-        title = "Mondphase & Feste Erdgezeiten (Solid Earth Tides)";
-        desc = "Gravitative Gezeitenkräfte von Mond und Sonne deformieren die feste Erdkruste zweimal täglich elastisch um 40–50 cm. Zu Neumond und Vollmond (Syzygie) addieren sich die Kräfte zur maximalen Gezeitenspannung. Diese Scher- und Entlastungskräfte modulieren die Coulomb-Bruchspannung verhakter Störungen und können überfällige Beben vorzeitig triggern (Tanaka et al., Ide et al. 2016).";
+        title = "Moon Phase & Solid Earth Tides";
+        desc = "Gravitational tidal forces from the Moon and Sun elastically deform the solid Earth twice daily by 40–50 cm. During Syzygy (New and Full Moon), these forces align to produce maximum tidal stress. These cyclic shear and normal stresses modulate Coulomb failure stress on locked faults and can trigger overdue earthquakes (Tanaka et al., Ide et al. 2016).";
         
         let lt = currentLunarTide || getLunarTidalStress();
         mathStr = 
-`• Mondphase: ${lt.phaseName} ${lt.icon} (${(lt.phaseFrac * 100).toFixed(1)}% des synodischen Zyklus)
-• Gezeitenspannungs-Niveau: ${lt.stressLevel} (${lt.stressPercent}%)
-• Coulomb-Trigger-Faktor: ${lt.multiplier.toFixed(2)}x
-• Physikalischer Einfluss: ${lt.stressPercent >= 75 ? 'MAXIMAL (Syzygie / Voll- bzw. Neumond: Erhöhte Trigger-Wahrscheinlichkeit)' : (lt.stressPercent >= 40 ? 'MODERAT (Halbmond / Quadratur)' : 'MINIMAL')}
-• Kopplung: Moduliert die Poisson-Erwartungsintervalle aller Störungszonen dynamisch um bis zu ±4%.`;
+`• Moon Phase: ${lt.phaseName} ${lt.icon} (${(lt.phaseFrac * 100).toFixed(1)}% of synodic cycle)
+• Tidal Stress Level: ${lt.stressLevel} (${lt.stressPercent}%)
+• Coulomb Trigger Factor: ${lt.multiplier.toFixed(2)}x
+• Physical Impact: ${lt.stressPercent >= 75 ? 'MAXIMUM (Syzygy / Full or New Moon: elevated trigger probability)' : (lt.stressPercent >= 40 ? 'MODERATE (Quarter Moon / Quadrature)' : 'MINIMAL')}
+• Coupling: Dynamically modulates Poisson expectation intervals by up to ±4%.`;
     } else if (calcType === 'tectonic-flow') {
-        title = "Tektonischer Rhythmus & Migrationsfluss (Stress Cascades)";
-        desc = "Erdbeben treten nicht isoliert auf, sondern wandern entlang von Plattengrenzen in rhythmischen Spannungskaskaden. Durch viskoelastische Relaxation in der Asthenosphäre und Porenflüssigkeits-Diffusionswellen breitet sich tektonischer Stress mit typischen Geschwindigkeiten von 4 bis 300 km/h aus (z.B. Nordanatolische Verwerfung, Cascadia, Marianen-Bogen).";
+        title = "Tectonic Rhythm & Migration Flow (Stress Cascades)";
+        desc = "Earthquakes do not occur in isolation; stress transfers dynamically along plate boundaries in rhythmic cascades. Through viscoelastic relaxation in the asthenosphere and pore-fluid diffusion waves, tectonic stress propagates at typical speeds of 4 to 300 km/h (e.g., North Anatolian Fault, Cascadia, Mariana Arc).";
         
         let mig = activeFlowSummary;
         let flowList = (activeTectonicFlows || []).slice(-4).reverse();
-        let flowStr = flowList.map((f, idx) => `  ${idx + 1}. ${f.from.place ? cleanPlaceName(f.from.place) : 'Beben A'} ➔ ${f.to.place ? cleanPlaceName(f.to.place) : 'Beben B'} (${f.distKm} km, ${f.speedKmH} km/h, ${f.dirName})`).join('\n');
+        let flowStr = flowList.map((f, idx) => `  ${idx + 1}. ${f.from.place ? cleanPlaceName(f.from.place) : 'Event A'} ➔ ${f.to.place ? cleanPlaceName(f.to.place) : 'Event B'} (${f.distKm} km, ${f.speedKmH} km/h, ${f.dirName})`).join('\n');
         
         mathStr = 
-`• Erkannte Migrations-Vektoren (48h): ${mig.count}
-• Dominante Wanderungs-Richtung: ${mig.label}
-• Berechnungs-Fenster: 100 km bis 2200 km, 4–300 km/h
-` + (flowList.length > 0 ? `• Jüngste tektonische Spannungsflüsse:\n${flowStr}\n` : '• Aktueller Status: Ausgeglichen (Equilibrium)\n') +
+`• Detected Migration Vectors (48h): ${mig.count}
+• Dominant Direction: ${mig.label}
+• Calculation Window: 100 km to 2200 km, 4–300 km/h
+` + (flowList.length > 0 ? `• Recent Tectonic Stress Flows:\n${flowStr}\n` : '• Current Status: Balanced (Equilibrium)\n') +
 `
-Visualisierung:
-Die animierten gestrichelten Vektoren auf der 3D-Karte zeigen den realen Pfad und die Flussrichtung der Spannungsweitergabe in Echtzeit.`;
+Visualization:
+The animated dashed vectors on the 3D map display the real-time path and direction of stress propagation.`;
     }
 
     if (statObj && statObj.effGap) {
@@ -2003,25 +2002,25 @@ Die animierten gestrichelten Vektoren auf der 3D-Karte zeigen den realen Pfad un
         if (elapsed > statObj.effGap) {
             let bpt = calculateBPTStrain(elapsed, statObj.effGap);
             overdueBPTInfo = 
-`\n\n⚠️ BPT / WEIBULL ÜBERFÄLLIGKEITS-ANALYSE:
-• Überfälligkeit: +${formatDur(elapsed - statObj.effGap)} (${bpt.r.toFixed(2)}x des Erwartungsintervalls)
-• Asperitäten-Dehnungsfaktor (Strain): ${bpt.strain.toFixed(2)}x
-• Bedingte Hazard-Rate (nächste Stunde): ${(bpt.pCond1h * 100).toFixed(1)}%`;
+`\n\n⚠️ BPT / WEIBULL OVERDUE ANALYSIS:
+• Overdue: +${formatDur(elapsed - statObj.effGap)} (${bpt.r.toFixed(2)}x of expected interval)
+• Asperity Strain Factor: ${bpt.strain.toFixed(2)}x
+• Conditional Hazard Rate (next hour): ${(bpt.pCond1h * 100).toFixed(1)}%`;
         }
 
         mathStr = 
-`• Datensatz: ${statObj.n} Ereignisse (Hauptbeben)
-• Basis-Intervall: ${formatDur(statObj.rawGap)} (60% Median + 40% EMA)
-• Gaia-Modifikator: ${gaiaChargeMultiplier.toFixed(2)}x · Gezeiten: ${lt.multiplier.toFixed(2)}x (Effektiv: ${formatDur(statObj.effGap)})
-• Letztes Beben: ${statObj.lastEq ? formatTime(statObj.lastEq.time) + ' (vor ' + formatDur(elapsed) + ')' : 'k.A.'}
-• Erwartungswert (Mean): ${formatTime(statObj.nextTime)}
+`• Dataset: ${statObj.n} events (mainshocks)
+• Base Interval: ${formatDur(statObj.rawGap)} (60% Median + 40% EMA)
+• Gaia Modifier: ${gaiaChargeMultiplier.toFixed(2)}x · Tides: ${lt.multiplier.toFixed(2)}x (Effective: ${formatDur(statObj.effGap)})
+• Last Quake: ${statObj.lastEq ? formatTime(statObj.lastEq.time) + ' (' + formatDur(elapsed) + ' ago)' : 'N/A'}
+• Expected Mean Time: ${formatTime(statObj.nextTime)}
 
-Poisson-Wahrscheinlichkeitsfenster:
-• 50% Konfidenz (P50): ~${formatDur(statObj.p50Gap)} (${formatTime(statObj.p50Time)})
-• 90% Konfidenz (P90): ~${formatDur(statObj.p90Gap)} (${formatTime(statObj.p90Time)})
-• Aktuelle Wahrscheinlichkeit: ${curProb.toFixed(1)}%${overdueBPTInfo}`;
+Poisson Arrival Windows:
+• 50% Confidence (P50): ~${formatDur(statObj.p50Gap)} (${formatTime(statObj.p50Time)})
+• 90% Confidence (P90): ~${formatDur(statObj.p90Gap)} (${formatTime(statObj.p90Time)})
+• Current Probability: ${curProb.toFixed(1)}%${overdueBPTInfo}`;
     } else if (calcType !== 'b-value' && calcType !== 'lunar-tide' && calcType !== 'tectonic-flow') {
-        mathStr = "Berechnung läuft oder unzureichende Daten vorhanden.";
+        mathStr = "Calculation in progress or insufficient data available.";
     }
     
     document.getElementById('calc-popup-title').textContent = title;
@@ -2732,7 +2731,7 @@ document.querySelectorAll('.eq-popup').forEach(popup => {
         startY = clientY;
         initialLeft = popup.offsetLeft;
         initialTop = popup.offsetTop;
-        // Verhindert, dass CSS-Transforms die Positionierung stören
+        // Prevent CSS transforms from interfering with fixed positioning
         popup.style.transform = 'none'; 
         popup.style.margin = '0';
         popup.style.bottom = 'auto';
@@ -3124,14 +3123,14 @@ async function loadHotspots() {
             n.style.maxWidth = '130px';
             n.style.overflow = 'hidden';
             n.style.textOverflow = 'ellipsis';
-            let titleText = `${h.name} (${h.lat.toFixed(1)}°, ${h.lon.toFixed(1)}°)\n3-Jahres M5+ Hauptbeben: ${h.n3y}\n7-Tage Poisson-Wahrscheinlichkeit: ${(h.p7d * 100).toFixed(1)}%`;
+            let titleText = `${h.name} (${h.lat.toFixed(1)}°, ${h.lon.toFixed(1)}°)\n3-Year M5+ Mainshocks: ${h.n3y}\n7-Day Poisson Probability: ${(h.p7d * 100).toFixed(1)}%`;
             if (pre) {
-                titleText += `\n⚡ TIEFEN-VORLÄUFER: M${pre.deep.mag.toFixed(1)} in ${Math.round(pre.deep.depth)} km Tiefe (${pre.distKm} km Distanz, vor ${pre.ageDays}d). Viskoelastischer Schertransfer aktiv!`;
+                titleText += `\n⚡ DEEP MANTLE PRECURSOR: M${pre.deep.mag.toFixed(1)} at ${Math.round(pre.deep.depth)} km depth (${pre.distKm} km distance, ${pre.ageDays}d ago). Viscoelastic shear stress transfer active!`;
                 n.style.color = '#ffaa00';
             } else {
                 n.style.color = '';
             }
-            titleText += `\n(Klicken zum Zentrieren auf der Karte)`;
+            titleText += `\n(Click to center map)`;
             n.title = titleText;
             p.title = titleText;
             p.textContent = Math.round(h.p7d * 100) + '%';
@@ -3144,9 +3143,9 @@ async function loadHotspots() {
         }
         let card = document.getElementById('hotspot-card');
         if (card) {
-            card.title = 'Modell: ' + (data.model || 'Poisson 3y') + ' | Aktualisiert: ' + (data.generated || 'k.A.') +
-                ' | Backtest Trefferrate (Top-5): ' + Math.round((data.backtest_hit_rate || 0.12) * 100) +
-                '%. Klicke auf einen Hotspot, um ihn auf der Karte anzuzeigen.';
+            card.title = 'Model: ' + (data.model || 'Poisson 3y') + ' | Updated: ' + (data.generated || 'N/A') +
+                ' | Backtest Hit Rate (Top-5): ' + Math.round((data.backtest_hit_rate || 0.12) * 100) +
+                '%. Click any hotspot to center on map.';
         }
     } catch (e) {
         console.log('Error rendering hotspots:', e);
