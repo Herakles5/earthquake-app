@@ -908,6 +908,34 @@ h3 {
     text-shadow: 0 0 4px currentColor;
 }
 
+.hotspot-row {
+    transition: background-color 0.2s ease, transform 0.15s ease;
+    border-radius: 4px;
+    padding: 1px 4px;
+    cursor: pointer;
+}
+
+.hotspot-row:hover {
+    background: rgba(255, 204, 0, 0.18);
+    transform: translateX(2px);
+}
+
+[id^="prediction-region-"] {
+    transition: color 0.15s ease, text-decoration 0.15s ease;
+}
+
+[id^="prediction-region-"]:hover {
+    color: #ffcc00 !important;
+    text-decoration: underline;
+}
+
+#stat-b-value:hover,
+#stat-lunar-phase:hover,
+#stat-tectonic-flow:hover {
+    text-decoration: underline;
+    opacity: 0.9;
+}
+
 /* Gaia Progress Bars */
 .gaia-progress-bar {
     width: 100%;

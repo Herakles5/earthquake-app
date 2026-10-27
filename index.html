@@ -43,9 +43,10 @@
             </div>
 
             <div class="stat-box strip-card" style="border-color: #ff00ff; cursor: pointer;" onclick="document.getElementById('srModal').style.display='flex'">
-                <h4 style="color: #ff00ff;">SCHUMANN RESONANCE</h4>
+                <h4 style="color: #ff00ff;">SPACE WEATHER &amp; TIDES</h4>
                 <div class="stat-row"><span class="stat-lbl">Kp-Index:</span> <span id="stat-sr-kp" style="color: #ff88ff;">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Gaia Charge:</span> <span id="stat-sr-charge" style="color: #ff00ff; font-weight: bold;">...</span></div>
+                <div class="stat-row"><span class="stat-lbl">Tidal / Moon:</span> <span id="stat-lunar-phase" class="clickable-stat" data-calc="lunar-tide" style="color: #00e5ff; font-weight: bold; cursor: pointer;" title="Solid Earth Tides &amp; Moon Phase (Click for details)">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Impact:</span> <span id="stat-sr-impact">...</span></div>
             </div>
 
@@ -90,16 +91,20 @@
 
         <div class="strip-row">
             <div class="stat-box strip-card" style="border-color: #00ffcc;">
-                <h4 style="color: #00ffcc;">HEMISPHERES (LAST 24H)</h4>
+                <h4 style="color: #00ffcc;">HEMISPHERES &amp; STRESS (24H)</h4>
                 <div class="stat-row"><span class="stat-lbl">North vs South:</span> <span id="stat-hemi-ns">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">East vs West:</span> <span id="stat-hemi-ew">...</span></div>
+                <div class="stat-row"><span class="stat-lbl">Stress b-Value:</span> <span id="stat-b-value" class="clickable-stat" data-calc="b-value" style="font-weight: bold; cursor: pointer;" title="Gutenberg-Richter b-Wert (Klicken für Details)">...</span></div>
+                <div class="stat-row"><span class="stat-lbl">Tectonic Flow:</span> <span id="stat-tectonic-flow" class="clickable-stat" data-calc="tectonic-flow" style="font-weight: bold; color: #ff33cc; cursor: pointer;" title="Aktive tektonische Spannungsübertragung (Klicken für Details)">...</span></div>
             </div>
 
             <div class="stat-box strip-card" id="hotspot-card" style="border-color: #ffcc00;" title="Long-term hotspots (server model). P = chance of at least one M5+ mainshock within 300 km in the next 7 days.">
                 <h4 style="color: #ffcc00;">HOTSPOTS · M5+ · 7 DAYS</h4>
-                <div class="stat-row"><span class="stat-lbl" id="hotspot-1-name">...</span> <span id="hotspot-1-p">...</span></div>
-                <div class="stat-row"><span class="stat-lbl" id="hotspot-2-name">...</span> <span id="hotspot-2-p">...</span></div>
-                <div class="stat-row"><span class="stat-lbl" id="hotspot-3-name">...</span> <span id="hotspot-3-p">...</span></div>
+                <div class="stat-row hotspot-row" id="hotspot-row-1"><span class="stat-lbl" id="hotspot-1-name">...</span> <span id="hotspot-1-p">...</span></div>
+                <div class="stat-row hotspot-row" id="hotspot-row-2"><span class="stat-lbl" id="hotspot-2-name">...</span> <span id="hotspot-2-p">...</span></div>
+                <div class="stat-row hotspot-row" id="hotspot-row-3"><span class="stat-lbl" id="hotspot-3-name">...</span> <span id="hotspot-3-p">...</span></div>
+                <div class="stat-row hotspot-row" id="hotspot-row-4"><span class="stat-lbl" id="hotspot-4-name">...</span> <span id="hotspot-4-p">...</span></div>
+                <div class="stat-row hotspot-row" id="hotspot-row-5"><span class="stat-lbl" id="hotspot-5-name">...</span> <span id="hotspot-5-p">...</span></div>
             </div>
 
             <div id="prediction-bar" class="strip-card">

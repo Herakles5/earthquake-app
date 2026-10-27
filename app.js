@@ -175,6 +175,291 @@ function computeGaps(eqs) {
     return gaps;
 }
 
+function cleanPlaceName(rawPlace) {
+    if (!rawPlace) return "Unknown";
+    let p = rawPlace.trim();
+    let ofIdx = p.indexOf(' of ');
+    if (ofIdx > -1) {
+        p = p.substring(ofIdx + 4);
+    }
+    p = p.replace(/^\d+\s*km\s+[NSEWnsew]+\s+of\s+/i, '');
+    p = p.replace(/^near\s+the\s+coast\s+of\s+/i, '');
+    p = p.replace(/^off\s+the\s+coast\s+of\s+/i, '');
+    p = p.replace(/^region\s+of\s+/i, '');
+    return p.trim();
+}
+
+function getSpatialClusterRegion(eqList, limit, maxRadiusKm = 250) {
+    if (!eqList || eqList.length === 0) {
+        return { label: 'N/A', lat: 0, lon: 0, count: 0, isCluster: false };
+    }
+    let sample = eqList.slice(0, Math.min(limit, eqList.length));
+    if (sample.length === 1) {
+        let pName = cleanPlaceName(sample[0].place);
+        return {
+            label: pName,
+            placeClean: pName,
+            lat: sample[0].lat,
+            lon: sample[0].lon,
+            count: 1,
+            totalSample: 1,
+            isCluster: false,
+            strongestMag: sample[0].mag
+        };
+    }
+
+    let bestSeed = sample[0];
+    let bestCluster = [sample[0]];
+    let maxClusterScore = -1;
+
+    for (let i = 0; i < sample.length; i++) {
+        let seed = sample[i];
+        let cluster = [];
+        let score = 0;
+        for (let j = 0; j < sample.length; j++) {
+            let other = sample[j];
+            let d = haversineDistance(seed.lat, seed.lon, other.lat, other.lon);
+            if (d <= maxRadiusKm) {
+                cluster.push(other);
+                let w = Math.pow(10, 0.25 * (other.mag - 3.0));
+                score += w;
+            }
+        }
+        if (score > maxClusterScore) {
+            maxClusterScore = score;
+            bestSeed = seed;
+            bestCluster = cluster;
+        }
+    }
+
+    let sumLat = 0, sumLon = 0, sumW = 0;
+    let strongest = bestCluster[0];
+    for (let eq of bestCluster) {
+        let w = Math.pow(10, 0.3 * (eq.mag - 3.0));
+        sumLat += eq.lat * w;
+        sumLon += eq.lon * w;
+        sumW += w;
+        if (eq.mag > strongest.mag) strongest = eq;
+    }
+    let centLat = sumW > 0 ? sumLat / sumW : bestSeed.lat;
+    let centLon = sumW > 0 ? sumLon / sumW : bestSeed.lon;
+
+    let placeClean = cleanPlaceName(strongest.place);
+    let isCluster = bestCluster.length >= 2;
+    let label = isCluster ? `${placeClean} (${bestCluster.length}x swarm)` : placeClean;
+
+    return {
+        label: label,
+        placeClean: placeClean,
+        lat: centLat,
+        lon: centLon,
+        count: bestCluster.length,
+        totalSample: sample.length,
+        isCluster: isCluster,
+        strongestMag: strongest.mag
+    };
+}
+
+let currentBValue = { b: 1.0, sigma: 0, n: 0, avgMag: 0, status: 'Normal', color: '#00ffcc' };
+
+function computeBValue(eqList, minMag = 3.0) {
+    if (!eqList || eqList.length === 0) {
+        return { b: 1.0, sigma: 0, n: 0, avgMag: 0, status: 'Normal', color: '#00ffcc' };
+    }
+    let valid = eqList.filter(eq => eq.mag !== undefined && eq.mag !== null && eq.mag >= minMag);
+    if (valid.length < 5) {
+        return { b: 1.0, sigma: 0, n: valid.length, avgMag: 0, status: 'Calculating...', color: '#888888' };
+    }
+    let sumMag = 0;
+    for (let eq of valid) sumMag += eq.mag;
+    let meanMag = sumMag / valid.length;
+    let deltaM = 0.1;
+    let denom = meanMag - (minMag - deltaM / 2.0);
+    if (denom <= 0.01) denom = 0.01;
+    
+    // Aki (1965) / Utsu (1966) MLE formula:
+    let b = Math.LOG10E / denom;
+    let sigma = b / Math.sqrt(valid.length);
+    
+    let status = "Normal";
+    let color = "#88ff88";
+    if (b >= 1.15) {
+        status = "Relaxed";
+        color = "#00ffcc";
+    } else if (b >= 0.90) {
+        status = "Normal";
+        color = "#88ff88";
+    } else if (b >= 0.75) {
+        status = "Elevated Stress";
+        color = "#ffaa00";
+    } else {
+        status = "High Stress (Locked)";
+        color = "#ff3333";
+    }
+    
+    return {
+        b: b,
+        sigma: sigma,
+        n: valid.length,
+        avgMag: meanMag,
+        status: status,
+        color: color
+    };
+}
+
+// ========== C: BPT / Weibull Strain Accumulation for Overdue Countdowns ==========
+function calculateBPTStrain(elapsedMs, meanGapMs, shapeK = 1.6) {
+    if (!elapsedMs || !meanGapMs || meanGapMs <= 0) return { r: 1.0, strain: 1.0, pCond1h: 0.1 };
+    let r = elapsedMs / meanGapMs;
+    let strain = Math.max(1.0, Math.pow(Math.max(1.0, r), shapeK));
+    let delta = 3600000;
+    let h1 = Math.pow(elapsedMs / meanGapMs, shapeK);
+    let h2 = Math.pow((elapsedMs + delta) / meanGapMs, shapeK);
+    let pCond = 1.0 - Math.exp(-(h2 - h1));
+    return {
+        r: r,
+        strain: strain,
+        pCond1h: Math.min(0.99, Math.max(0.01, pCond))
+    };
+}
+
+// ========== D: Solid Earth Tides & Lunar Phase Stress Modulation ==========
+let currentLunarTide = { phaseName: "Moon", icon: "🌕", tidalStress: 0.5, stressLevel: "MODERATE", multiplier: 1.0, color: "#00e5ff" };
+
+function getLunarTidalStress(nowMs = Date.now()) {
+    let refNewMoon = 1704974220000; // Jan 11, 2024, 11:57 UTC
+    let synodicMs = 29.530588853 * 86400000;
+    let elapsed = (nowMs - refNewMoon) % synodicMs;
+    if (elapsed < 0) elapsed += synodicMs;
+    let phaseFrac = elapsed / synodicMs;
+    
+    let phaseName = "New Moon";
+    let icon = "🌑";
+    if (phaseFrac < 0.04 || phaseFrac >= 0.96) { phaseName = "New Moon"; icon = "🌑"; }
+    else if (phaseFrac < 0.21) { phaseName = "Waxing Crescent"; icon = "🌒"; }
+    else if (phaseFrac < 0.29) { phaseName = "First Quarter"; icon = "🌓"; }
+    else if (phaseFrac < 0.46) { phaseName = "Waxing Gibbous"; icon = "🌔"; }
+    else if (phaseFrac < 0.54) { phaseName = "Full Moon"; icon = "🌕"; }
+    else if (phaseFrac < 0.71) { phaseName = "Waning Gibbous"; icon = "🌖"; }
+    else if (phaseFrac < 0.79) { phaseName = "Last Quarter"; icon = "🌗"; }
+    else { phaseName = "Waning Crescent"; icon = "🌘"; }
+    
+    let angle = phaseFrac * 2 * Math.PI;
+    let tidalStress = Math.abs(Math.cos(angle)); // 0.0 to 1.0
+    let stressLevel = tidalStress >= 0.75 ? "HIGH" : (tidalStress >= 0.40 ? "MODERATE" : "LOW");
+    let color = tidalStress >= 0.75 ? "#ff33cc" : (tidalStress >= 0.40 ? "#00ffcc" : "#88bbff");
+    let multiplier = 1.0 + (tidalStress - 0.5) * 0.08; // 0.96x to 1.04x
+    
+    return {
+        phaseFrac: phaseFrac,
+        phaseName: phaseName,
+        icon: icon,
+        tidalStress: tidalStress,
+        stressPercent: Math.round(tidalStress * 100),
+        stressLevel: stressLevel,
+        color: color,
+        multiplier: multiplier
+    };
+}
+
+// ========== E: Deep Mantle Precursor Detection (>150 km) ==========
+let activeDeepPrecursors = [];
+let cachedHotspotsData = [];
+
+function detectDeepPrecursors(eqList, hotspots) {
+    if (!eqList || eqList.length === 0) return [];
+    let now = Date.now();
+    let deepEqs = eqList.filter(eq => eq.depth >= 150.0 && eq.mag >= 4.5 && (now - eq.time) <= 7 * 86400000);
+    let list = [];
+    for (let deep of deepEqs) {
+        let ageDays = ((now - deep.time) / 86400000).toFixed(1);
+        let coupledHotspot = null;
+        let minDist = 999999;
+        if (hotspots && hotspots.length > 0) {
+            for (let h of hotspots) {
+                let d = haversineDistance(deep.lat, deep.lon, h.lat, h.lon);
+                if (d <= 900 && d < minDist) {
+                    minDist = d;
+                    coupledHotspot = h;
+                }
+            }
+        }
+        list.push({
+            deep: deep,
+            coupledHotspot: coupledHotspot,
+            distKm: Math.round(minDist),
+            ageDays: ageDays
+        });
+    }
+    return list;
+}
+
+// ========== Tectonic Flow / Seismic Migration Velocity ==========
+let activeTectonicFlows = [];
+let activeFlowSummary = { label: "Equilibrium", speedKmH: 0, count: 0, fromPlace: "", toPlace: "" };
+
+function bearingToDirection(deg) {
+    let dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+    let idx = Math.round(deg / 45) % 8;
+    return dirs[idx];
+}
+
+function computeTectonicMigration(eqList) {
+    if (!eqList || eqList.length < 3) return { flows: [], summary: { label: "Equilibrium", speedKmH: 0, count: 0 } };
+    let now = Date.now();
+    let sorted = eqList.slice().sort((a, b) => a.time - b.time);
+    let recent = sorted.filter(eq => (now - eq.time) <= 48 * 86400000);
+    let flows = [];
+    
+    for (let i = 0; i < recent.length - 1; i++) {
+        let e1 = recent[i];
+        for (let j = i + 1; j < Math.min(i + 4, recent.length); j++) {
+            let e2 = recent[j];
+            let dtMs = e2.time - e1.time;
+            if (dtMs <= 0 || dtMs > 36 * 3600000) continue;
+            let distKm = haversineDistance(e1.lat, e1.lon, e2.lat, e2.lon);
+            if (distKm >= 100 && distKm <= 2200) {
+                let speed = distKm / (dtMs / 3600000);
+                if (speed >= 4 && speed <= 300) {
+                    let dLon = (e2.lon - e1.lon) * Math.PI / 180;
+                    let lat1 = e1.lat * Math.PI / 180;
+                    let lat2 = e2.lat * Math.PI / 180;
+                    let y = Math.sin(dLon) * Math.cos(lat2);
+                    let x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+                    let bearing = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+                    
+                    flows.push({
+                        from: e1,
+                        to: e2,
+                        distKm: Math.round(distKm),
+                        dtHours: (dtMs / 3600000).toFixed(1),
+                        speedKmH: Math.round(speed),
+                        bearing: Math.round(bearing),
+                        dirName: bearingToDirection(bearing),
+                        ageMs: now - e2.time
+                    });
+                }
+            }
+        }
+    }
+    
+    let summary = { label: "Equilibrium", speedKmH: 0, count: flows.length };
+    if (flows.length > 0) {
+        let latest = flows[flows.length - 1];
+        let p1 = cleanPlaceName(latest.from.place);
+        let p2 = cleanPlaceName(latest.to.place);
+        summary = {
+            label: `${latest.dirName} (${latest.speedKmH} km/h)`,
+            speedKmH: latest.speedKmH,
+            count: flows.length,
+            fromPlace: p1,
+            toPlace: p2,
+            latest: latest
+        };
+    }
+    return { flows: flows, summary: summary };
+}
+
 // ==========================================================================
 // UNIFIED GAIA RHYTHM ENGINE
 // One single calculation path for EVERY "next quake" countdown in the app
@@ -267,7 +552,9 @@ function gaiaStatsFor(eqsNewestFirst, declusterIt) {
     let medGap = median(gaps);
     let emaGap = exponentialWeightedAvg(gaps, 0.3);
     let rawGap = medGap * 0.6 + emaGap * 0.4;
-    let effGap = rawGap / gaiaChargeMultiplier;
+    let lt = getLunarTidalStress();
+    let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0);
+    let effGap = rawGap / totalMult;
     let last = eqsNewestFirst[0];
     let p50Gap = Math.round(Math.LN2 * effGap);
     let p90Gap = Math.round(2.302585 * effGap);
@@ -285,7 +572,8 @@ function gaiaStatsFor(eqsNewestFirst, declusterIt) {
 // windowMs: optional look-back window (used for M3+/deep sidebar rows)
 function gaiaClass(kind, windowMs) {
     let ds = gaiaDatasets();
-    let key = kind + '|' + (windowMs || 0) + '|' + gaiaChargeMultiplier.toFixed(3) + '|' + Math.floor(Date.now() / 60000);
+    let lt = getLunarTidalStress();
+    let key = kind + '|' + (windowMs || 0) + '|' + gaiaChargeMultiplier.toFixed(3) + '|' + (lt ? lt.multiplier.toFixed(3) : '1.000') + '|' + Math.floor(Date.now() / 60000);
     if (_gaiaStatCache.has(key)) return _gaiaStatCache.get(key);
     let src, decl = false;
     if (kind === 'deep') {
@@ -326,7 +614,7 @@ function gaiaRecomputeAll(force) {
 
 function updatePrediction() {
     gaiaRecomputeAll();
-    let renderCountdown = (id, predictedTime, normalColor) => {
+    let renderCountdown = (id, predictedTime, normalColor, stat) => {
         const el = document.getElementById(id);
         if (el && predictedTime > 0) {
             let diff = predictedTime - Date.now();
@@ -349,12 +637,21 @@ function updatePrediction() {
                 let h = Math.floor((overdueSecs % 86400) / 3600);
                 let m = Math.floor((overdueSecs % 3600) / 60);
                 let s = overdueSecs % 60;
-                let text = "";
-                if (d > 0) text = `OVERDUE by ${d}d ${h}h ${m}m ${s}s`;
-                else if (h > 0) text = `OVERDUE by ${h}h ${m}m ${s}s`;
-                else text = `OVERDUE by ${m}m ${s}s`;
+                let timeText = "";
+                if (d > 0) timeText = `${d}d ${h}h ${m}m ${s}s`;
+                else if (h > 0) timeText = `${h}h ${m}m ${s}s`;
+                else timeText = `${m}m ${s}s`;
                 
-                el.textContent = text;
+                let bptStr = "";
+                if (stat && stat.effGap && stat.lastEq) {
+                    let elapsed = Math.max(0, Date.now() - stat.lastEq.time);
+                    let bpt = calculateBPTStrain(elapsed, stat.effGap);
+                    if (bpt.strain > 1.05) {
+                        bptStr = ` · BPT ${bpt.strain.toFixed(1)}x`;
+                    }
+                }
+                
+                el.textContent = `OVERDUE by ${timeText}${bptStr}`;
                 el.style.color = '#ff3333';
             }
         } else if (el) {
@@ -362,60 +659,96 @@ function updatePrediction() {
         }
     };
 
+    let D = 86400000;
+    let stGlobal = gaiaClass(3, 1 * D);
+    let stGlobalM4 = gaiaClass(4, 1 * D);
+
     // Short-term prediction (last 5)
-    renderCountdown('prediction-timer', predictedNextTime, '#ff8800');
+    renderCountdown('prediction-timer', predictedNextTime, '#ff8800', shortTermStat);
     // Global 24h prediction
-    renderCountdown('prediction-timer-24h', predictedNextTime24h, '#00ffcc');
+    renderCountdown('prediction-timer-24h', predictedNextTime24h, '#00ffcc', stGlobal);
     
     // M4 Short-term prediction
-    renderCountdown('prediction-timer-m4', predictedNextTimeM4, '#ff3333');
+    renderCountdown('prediction-timer-m4', predictedNextTimeM4, '#ff3333', shortTermM4Stat);
     // M4 Global 24h prediction
-    renderCountdown('prediction-timer-24h-m4', predictedNextTime24hM4, '#ff3333');
+    renderCountdown('prediction-timer-24h-m4', predictedNextTime24hM4, '#ff3333', stGlobalM4);
     
     // Global long term predictions
-    renderCountdown('stat-7d-avg', predictedNextTime7d, '#00ffcc');
-    renderCountdown('stat-30d-avg', predictedNextTime30d, '#00ffcc');
+    renderCountdown('stat-7d-avg', predictedNextTime7d, '#00ffcc', gaiaClass(3, 7 * D));
+    renderCountdown('stat-30d-avg', predictedNextTime30d, '#00ffcc', gaiaClass(3, 30 * D));
     
-    renderCountdown('stat-7d-mag5-avg', predictedNextTime7dMag5, '#ff8800');
-    renderCountdown('stat-7d-mag7-avg', predictedNextTime7dMag7, '#ff3333');
+    renderCountdown('stat-7d-mag5-avg', predictedNextTime7dMag5, '#ff8800', gaiaClass(5));
+    renderCountdown('stat-7d-mag7-avg', predictedNextTime7dMag7, '#ff3333', gaiaClass(7));
     
-    renderCountdown('stat-30d-mag5-avg', predictedNextTime30dMag5, '#ff8800');
-    renderCountdown('stat-30d-mag7-avg', predictedNextTime30dMag7, '#ff3333');
+    renderCountdown('stat-30d-mag5-avg', predictedNextTime30dMag5, '#ff8800', gaiaClass(5));
+    renderCountdown('stat-30d-mag7-avg', predictedNextTime30dMag7, '#ff3333', gaiaClass(7));
     
-    renderCountdown('stat-7d-deep-avg', predictedNextTime7dDeep, '#88bbff');
-    renderCountdown('stat-30d-deep-avg', predictedNextTime30dDeep, '#88bbff');
+    renderCountdown('stat-7d-deep-avg', predictedNextTime7dDeep, '#88bbff', gaiaClass('deep', 7 * D));
+    renderCountdown('stat-30d-deep-avg', predictedNextTime30dDeep, '#88bbff', gaiaClass('deep', 30 * D));
 
-    // Poisson Interval updates & tooltips
+    // Poisson & BPT Interval updates & tooltips
     let renderInterval = (elemId, stat) => {
         let el = document.getElementById(elemId);
         if (!el) return;
         if (stat && stat.p50Gap && stat.p90Gap) {
             let p50Str = formatDuration(stat.p50Gap, false);
             let p90Str = formatDuration(stat.p90Gap, false);
-            el.textContent = `P50: ~${p50Str} · P90: ~${p90Str}`;
             let elapsed = stat.lastEq ? Math.max(0, Date.now() - stat.lastEq.time) : 0;
             let pElapsed = Math.min(99.9, (1 - Math.exp(-elapsed / stat.effGap)) * 100);
-            el.title = `Poisson-Intervall: 50% Chance innerhalb ${p50Str}, 90% innerhalb ${p90Str}.\nAktuelle Wahrscheinlichkeit seit letztem Beben: ${pElapsed.toFixed(1)}% (Gaia: ${gaiaChargeMultiplier.toFixed(2)}x)\nKlicken für Formel-Details.`;
+            if (elapsed > stat.effGap) {
+                let bpt = calculateBPTStrain(elapsed, stat.effGap);
+                el.textContent = `P50: ~${p50Str} · BPT: ${bpt.strain.toFixed(1)}x (${(bpt.pCond1h * 100).toFixed(0)}%/h)`;
+                el.style.color = '#ff6666';
+                el.title = `Poisson-Intervall: P50 ~${p50Str}, P90 ~${p90Str}.\n⚠️ ÜBERFÄLLIG nach BPT/Weibull-Modell:\nAkkumulierter Dehnungsfaktor: ${bpt.strain.toFixed(2)}x\nBedingte Hazard-Rate: ${(bpt.pCond1h * 100).toFixed(1)}%/h\nKlicken für Formel-Details.`;
+            } else {
+                el.textContent = `P50: ~${p50Str} · P90: ~${p90Str}`;
+                el.style.color = '';
+                el.title = `Poisson-Intervall: 50% Chance innerhalb ${p50Str}, 90% innerhalb ${p90Str}.\nAktuelle Wahrscheinlichkeit seit letztem Beben: ${pElapsed.toFixed(1)}% (Gaia: ${gaiaChargeMultiplier.toFixed(2)}x)\nKlicken für Formel-Details.`;
+            }
         } else {
             el.textContent = 'P50: ... · P90: ...';
         }
     };
-
-    let D = 86400000;
-    let stGlobal = gaiaClass(3, 1 * D);
-    let stGlobalM4 = gaiaClass(4, 1 * D);
 
     renderInterval('pred-interval-short', shortTermStat);
     renderInterval('pred-interval-global', stGlobal);
     renderInterval('pred-interval-short-m4', shortTermM4Stat);
     renderInterval('pred-interval-global-m4', stGlobalM4);
 
+    // Update Lunar Tide in UI
+    currentLunarTide = getLunarTidalStress();
+    let ltEl = document.getElementById('stat-lunar-phase');
+    if (ltEl) {
+        ltEl.textContent = `${currentLunarTide.icon} ${currentLunarTide.phaseName} (${currentLunarTide.stressPercent}%)`;
+        ltEl.style.color = currentLunarTide.color;
+        ltEl.title = `Mondphase & Feste Erdgezeiten: ${currentLunarTide.phaseName} (${currentLunarTide.icon})\nGravitativer Gezeitenstress: ${currentLunarTide.stressLevel} (${currentLunarTide.stressPercent}%)\nCoulomb-Trigger-Faktor: ${currentLunarTide.multiplier.toFixed(2)}x\n(Klicken für physikalische Details)`;
+    }
+
+    // Update Tectonic Migration Flow in UI
+    let tfEl = document.getElementById('stat-tectonic-flow');
+    if (tfEl) {
+        if (activeFlowSummary.count > 0) {
+            tfEl.textContent = `${activeFlowSummary.label}`;
+            tfEl.style.color = '#ffaa00';
+            tfEl.title = `Tektonischer Rhythmus & Migrationsfluss: ${activeFlowSummary.count} aktive Vektoren (48h)\nDominante Wanderung: ${activeFlowSummary.label}\nLetzter Vektor: ${activeFlowSummary.fromPlace} ➔ ${activeFlowSummary.toPlace}\n(Klicken für Details und Vektoren)`;
+        } else {
+            tfEl.textContent = 'Equilibrium';
+            tfEl.style.color = '#88bbff';
+            tfEl.title = 'Tektonischer Rhythmus: Keine signifikante gerichtete Spannungs-Migration (Gleichgewicht).';
+        }
+    }
+
     let setTooltip = (id, stat, label) => {
         let el = document.getElementById(id);
         if (el && stat) {
             let elapsed = stat.lastEq ? Math.max(0, Date.now() - stat.lastEq.time) : 0;
             let curP = Math.min(99.9, (1 - Math.exp(-elapsed / stat.effGap)) * 100);
-            el.title = `${label}: Erwartet in ~${formatDuration(stat.effGap, false)} (P50: ~${formatDuration(stat.p50Gap, false)}, P90: ~${formatDuration(stat.p90Gap, false)}).\nWahrscheinlichkeit aktuell: ${curP.toFixed(1)}% | Gaia: ${gaiaChargeMultiplier.toFixed(2)}x (Klicken für Details)`;
+            let bptNote = "";
+            if (elapsed > stat.effGap) {
+                let bpt = calculateBPTStrain(elapsed, stat.effGap);
+                bptNote = `\n⚠️ BPT-Strain: ${bpt.strain.toFixed(2)}x (+${(bpt.pCond1h * 100).toFixed(1)}%/h)`;
+            }
+            el.title = `${label}: Erwartet in ~${formatDuration(stat.effGap, false)} (P50: ~${formatDuration(stat.p50Gap, false)}, P90: ~${formatDuration(stat.p90Gap, false)}).\nWahrscheinlichkeit aktuell: ${curP.toFixed(1)}% | Gaia: ${gaiaChargeMultiplier.toFixed(2)}x${bptNote}\n(Klicken für Details)`;
         }
     };
     setTooltip('prediction-timer', shortTermStat, 'M3+ Short');
@@ -807,7 +1140,9 @@ async function fetchEarthquakes() {
             let emaGap = exponentialWeightedAvg(gaps, 0.35);
             // Blend: 60% median (stable), 40% EMA (reactive)
             let rawGap = medGap * 0.6 + emaGap * 0.4;
-            let effGap = rawGap / gaiaChargeMultiplier;
+            let lt = getLunarTidalStress();
+            let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0);
+            let effGap = rawGap / totalMult;
             let last = eqList[0];
             let p50Gap = Math.round(Math.LN2 * effGap);
             let p90Gap = Math.round(2.302585 * effGap);
@@ -843,6 +1178,39 @@ async function fetchEarthquakes() {
             ewElem.textContent = `${ne.length + se.length} vs ${nw.length + sw.length}`;
         }
         
+        // Calculate Gutenberg-Richter b-Value (Crustal Stress State)
+        currentBValue = computeBValue(earthquakes, 3.0);
+        let bEl = document.getElementById('stat-b-value');
+        if (bEl) {
+            if (currentBValue.n >= 5) {
+                bEl.textContent = `${currentBValue.b.toFixed(2)} (${currentBValue.status})`;
+                bEl.style.color = currentBValue.color;
+                bEl.title = `Gutenberg-Richter b-Wert: ${currentBValue.b.toFixed(2)} ± ${currentBValue.sigma.toFixed(2)}\nAnalyse: ${currentBValue.n} Beben (M≥3.0, 24h)\nDurchschnitt: M${currentBValue.avgMag.toFixed(2)}\nStatus: ${currentBValue.status} (Klicken für Details)`;
+            } else {
+                bEl.textContent = 'Calculating...';
+                bEl.style.color = '#888888';
+            }
+        }
+
+        // Calculate Tectonic Migration Flow (Stress cascading along boundaries)
+        let migResult = computeTectonicMigration(earthquakes);
+        activeTectonicFlows = migResult.flows;
+        activeFlowSummary = migResult.summary;
+
+        // Detect Deep Mantle Precursors (>150 km) coupled to hotspots
+        if (cachedHotspotsData && cachedHotspotsData.length > 0) {
+            activeDeepPrecursors = detectDeepPrecursors(earthquakes, cachedHotspotsData);
+            let count = Math.min(cachedHotspotsData.length, 5);
+            for (let i = 0; i < count; i++) {
+                let h = cachedHotspotsData[i];
+                let n = document.getElementById('hotspot-' + (i + 1) + '-name');
+                if (!h || !n) continue;
+                let pre = activeDeepPrecursors.find(dp => dp.coupledHotspot && dp.coupledHotspot.name === h.name);
+                n.textContent = h.name + (pre ? " ⚡" : "");
+                if (pre) n.style.color = '#ffaa00';
+            }
+        }
+
         let eqsM4 = earthquakes.filter(eq => eq.mag >= 4.0);
         
         // M4+ short-term (smart prediction)
@@ -854,67 +1222,46 @@ async function fetchEarthquakes() {
         // Global 24h & matrix recalculation
         gaiaRecomputeAll(true);
         
-        // Calculate predicted region
+        // Calculate predicted spatial cluster regions
         if (earthquakes.length > 0) {
-            let getBestRegion = (limit) => {
-                let regionCounts = {};
-                let maxCount = 0;
-                let bestRegion = earthquakes[0].place;
-                let actualLimit = Math.min(limit, earthquakes.length);
-                for (let i = 0; i < actualLimit; i++) {
-                    let r = earthquakes[i].place;
-                    let cleanR = r;
-                    let ofIndex = r.indexOf(' of ');
-                    if (ofIndex > -1) {
-                        cleanR = r.substring(ofIndex + 4);
-                    }
-                    cleanR = cleanR.trim().toUpperCase();
-                    regionCounts[cleanR] = (regionCounts[cleanR] || 0) + 1;
-                    if (regionCounts[cleanR] > maxCount) {
-                        maxCount = regionCounts[cleanR];
-                        bestRegion = cleanR;
-                    }
-                }
-                return bestRegion;
-            };
-            
+            let spat5 = getSpatialClusterRegion(earthquakes, 5);
             let reg5 = document.getElementById('prediction-region-5');
-            if (reg5) reg5.textContent = getBestRegion(5);
+            if (reg5) {
+                reg5.textContent = spat5.label;
+                reg5.title = `Schwarm-Zentrum: ${spat5.lat.toFixed(2)}°, ${spat5.lon.toFixed(2)}° (${spat5.count} von ${spat5.totalSample} Beben)\nKlicken zum Zentrieren auf der Karte.`;
+                reg5.onclick = () => flyToCoords(spat5.lat, spat5.lon);
+            }
             
+            let spat24 = getSpatialClusterRegion(earthquakes, earthquakes.length);
             let reg24 = document.getElementById('prediction-region-24h');
-            if (reg24) reg24.textContent = getBestRegion(earthquakes.length);
+            if (reg24) {
+                reg24.textContent = spat24.label;
+                reg24.title = `24h-Aktivitätszentrum: ${spat24.lat.toFixed(2)}°, ${spat24.lon.toFixed(2)}° (${spat24.count} Beben im Cluster)\nKlicken zum Zentrieren auf der Karte.`;
+                reg24.onclick = () => flyToCoords(spat24.lat, spat24.lon);
+            }
         }
         
         if (eqsM4.length > 0) {
-            let getBestRegionM4 = (limit) => {
-                let regionCounts = {};
-                let maxCount = 0;
-                let bestRegion = eqsM4[0].place;
-                let actualLimit = Math.min(limit, eqsM4.length);
-                for (let i = 0; i < actualLimit; i++) {
-                    let r = eqsM4[i].place;
-                    let cleanR = r;
-                    let ofIndex = r.indexOf(' of ');
-                    if (ofIndex > -1) cleanR = r.substring(ofIndex + 4);
-                    cleanR = cleanR.trim().toUpperCase();
-                    regionCounts[cleanR] = (regionCounts[cleanR] || 0) + 1;
-                    if (regionCounts[cleanR] > maxCount) {
-                        maxCount = regionCounts[cleanR];
-                        bestRegion = cleanR;
-                    }
-                }
-                return bestRegion;
-            };
-            
+            let spat5m4 = getSpatialClusterRegion(eqsM4, 5);
             let reg5m4 = document.getElementById('prediction-region-5-m4');
-            if (reg5m4) reg5m4.textContent = getBestRegionM4(5);
+            if (reg5m4) {
+                reg5m4.textContent = spat5m4.label;
+                reg5m4.title = `M4+ Schwarm-Zentrum: ${spat5m4.lat.toFixed(2)}°, ${spat5m4.lon.toFixed(2)}°\nKlicken zum Zentrieren auf der Karte.`;
+                reg5m4.onclick = () => flyToCoords(spat5m4.lat, spat5m4.lon);
+            }
             
+            let spat24m4 = getSpatialClusterRegion(eqsM4, eqsM4.length);
             let reg24m4 = document.getElementById('prediction-region-24h-m4');
-            if (reg24m4) reg24m4.textContent = getBestRegionM4(eqsM4.length);
+            if (reg24m4) {
+                reg24m4.textContent = spat24m4.label;
+                reg24m4.title = `M4+ 24h-Aktivitätszentrum: ${spat24m4.lat.toFixed(2)}°, ${spat24m4.lon.toFixed(2)}°\nKlicken zum Zentrieren auf der Karte.`;
+                reg24m4.onclick = () => flyToCoords(spat24m4.lat, spat24m4.lon);
+            }
         }
         
         gaiaRecomputeAll(true);
         updatePrediction();
+        loadHotspots();
         
         statusDiv.textContent = `${earthquakes.length} earthquakes mapped.`;
     } catch (e) {
@@ -1596,24 +1943,84 @@ document.addEventListener('click', (e) => {
         statObj = gaiaClass('deep', (calcType.startsWith('30d') ? 30 : 7) * D);
         title = "Tiefe Mantelbeben (>150 km)";
         desc = "Statistische Entladungsintervalle tiefer subduzierter Plattenausgleiche (>150 km Tiefe).";
+    } else if (calcType === 'b-value') {
+        title = "Gutenberg-Richter b-Wert & Krustenspannung";
+        desc = "Der Gutenberg-Richter b-Wert (log₁₀ N = a - b·M) ist der zentrale geophysikalische Indikator für den Spannungszustand der Erdkruste. In entspanntem Zustand liegt b ≈ 1.0–1.2 (viele kleine Ausgleiche). Wenn Verwerfungen verhaken (Asperity Locking), sinkt b unter 0.8 ab, da die Kruste unter extremem Druck keine Mikrobeben mehr zulässt – ein klassisches Vorläufer-Signal vor schweren Erdbeben.";
+        
+        let bVal = currentBValue;
+        let bMonth = (typeof globalMonthEqs !== 'undefined' && globalMonthEqs.length > 20) 
+            ? computeBValue(globalMonthEqs, 4.0) 
+            : null;
+        
+        mathStr = 
+`• Methode: Aki-Utsu Maximum Likelihood Estimator (MLE)
+• Datenbasis (24h): ${bVal.n} Erdbeben (M ≥ 3.0)
+• Durchschnitts-Magnitude M̄: M${bVal.avgMag.toFixed(2)}
+• Aktueller b-Wert: ${bVal.b.toFixed(2)} ± ${bVal.sigma.toFixed(2)}
+• Spannungszustand: ${bVal.status.toUpperCase()}
+` + (bMonth && bMonth.n > 20 ? `• 30-Tage Referenzwert (Global M≥4.0): b = ${bMonth.b.toFixed(2)} (${bMonth.n} Beben)\n` : '') +
+`
+Interpretation:
+  b ≥ 1.15 : Entspannt / Hydrothermal (Geringe Großbeben-Gefahr)
+  0.90-1.14: Normales tektonisches Gleichgewicht
+  0.75-0.89: Erhöhte Verhakung & Spannungsaufbau
+  b < 0.75 : HOHE SPANNUNG (Verwerfungen verriegelt / Locked)`;
+    } else if (calcType === 'lunar-tide') {
+        title = "Mondphase & Feste Erdgezeiten (Solid Earth Tides)";
+        desc = "Gravitative Gezeitenkräfte von Mond und Sonne deformieren die feste Erdkruste zweimal täglich elastisch um 40–50 cm. Zu Neumond und Vollmond (Syzygie) addieren sich die Kräfte zur maximalen Gezeitenspannung. Diese Scher- und Entlastungskräfte modulieren die Coulomb-Bruchspannung verhakter Störungen und können überfällige Beben vorzeitig triggern (Tanaka et al., Ide et al. 2016).";
+        
+        let lt = currentLunarTide || getLunarTidalStress();
+        mathStr = 
+`• Mondphase: ${lt.phaseName} ${lt.icon} (${(lt.phaseFrac * 100).toFixed(1)}% des synodischen Zyklus)
+• Gezeitenspannungs-Niveau: ${lt.stressLevel} (${lt.stressPercent}%)
+• Coulomb-Trigger-Faktor: ${lt.multiplier.toFixed(2)}x
+• Physikalischer Einfluss: ${lt.stressPercent >= 75 ? 'MAXIMAL (Syzygie / Voll- bzw. Neumond: Erhöhte Trigger-Wahrscheinlichkeit)' : (lt.stressPercent >= 40 ? 'MODERAT (Halbmond / Quadratur)' : 'MINIMAL')}
+• Kopplung: Moduliert die Poisson-Erwartungsintervalle aller Störungszonen dynamisch um bis zu ±4%.`;
+    } else if (calcType === 'tectonic-flow') {
+        title = "Tektonischer Rhythmus & Migrationsfluss (Stress Cascades)";
+        desc = "Erdbeben treten nicht isoliert auf, sondern wandern entlang von Plattengrenzen in rhythmischen Spannungskaskaden. Durch viskoelastische Relaxation in der Asthenosphäre und Porenflüssigkeits-Diffusionswellen breitet sich tektonischer Stress mit typischen Geschwindigkeiten von 4 bis 300 km/h aus (z.B. Nordanatolische Verwerfung, Cascadia, Marianen-Bogen).";
+        
+        let mig = activeFlowSummary;
+        let flowList = (activeTectonicFlows || []).slice(-4).reverse();
+        let flowStr = flowList.map((f, idx) => `  ${idx + 1}. ${f.from.place ? cleanPlaceName(f.from.place) : 'Beben A'} ➔ ${f.to.place ? cleanPlaceName(f.to.place) : 'Beben B'} (${f.distKm} km, ${f.speedKmH} km/h, ${f.dirName})`).join('\n');
+        
+        mathStr = 
+`• Erkannte Migrations-Vektoren (48h): ${mig.count}
+• Dominante Wanderungs-Richtung: ${mig.label}
+• Berechnungs-Fenster: 100 km bis 2200 km, 4–300 km/h
+` + (flowList.length > 0 ? `• Jüngste tektonische Spannungsflüsse:\n${flowStr}\n` : '• Aktueller Status: Ausgeglichen (Equilibrium)\n') +
+`
+Visualisierung:
+Die animierten gestrichelten Vektoren auf der 3D-Karte zeigen den realen Pfad und die Flussrichtung der Spannungsweitergabe in Echtzeit.`;
     }
 
     if (statObj && statObj.effGap) {
         let elapsed = statObj.lastEq ? Math.max(0, now - statObj.lastEq.time) : 0;
         let curProb = Math.min(99.9, (1 - Math.exp(-elapsed / statObj.effGap)) * 100);
+        let lt = getLunarTidalStress();
         
+        let overdueBPTInfo = "";
+        if (elapsed > statObj.effGap) {
+            let bpt = calculateBPTStrain(elapsed, statObj.effGap);
+            overdueBPTInfo = 
+`\n\n⚠️ BPT / WEIBULL ÜBERFÄLLIGKEITS-ANALYSE:
+• Überfälligkeit: +${formatDur(elapsed - statObj.effGap)} (${bpt.r.toFixed(2)}x des Erwartungsintervalls)
+• Asperitäten-Dehnungsfaktor (Strain): ${bpt.strain.toFixed(2)}x
+• Bedingte Hazard-Rate (nächste Stunde): ${(bpt.pCond1h * 100).toFixed(1)}%`;
+        }
+
         mathStr = 
 `• Datensatz: ${statObj.n} Ereignisse (Hauptbeben)
 • Basis-Intervall: ${formatDur(statObj.rawGap)} (60% Median + 40% EMA)
-• Gaia-Modifikator: ${gaiaChargeMultiplier.toFixed(2)}x (Effektiv: ${formatDur(statObj.effGap)})
+• Gaia-Modifikator: ${gaiaChargeMultiplier.toFixed(2)}x · Gezeiten: ${lt.multiplier.toFixed(2)}x (Effektiv: ${formatDur(statObj.effGap)})
 • Letztes Beben: ${statObj.lastEq ? formatTime(statObj.lastEq.time) + ' (vor ' + formatDur(elapsed) + ')' : 'k.A.'}
 • Erwartungswert (Mean): ${formatTime(statObj.nextTime)}
 
 Poisson-Wahrscheinlichkeitsfenster:
 • 50% Konfidenz (P50): ~${formatDur(statObj.p50Gap)} (${formatTime(statObj.p50Time)})
 • 90% Konfidenz (P90): ~${formatDur(statObj.p90Gap)} (${formatTime(statObj.p90Time)})
-• Aktuelle Wahrscheinlichkeit: ${curProb.toFixed(1)}%`;
-    } else {
+• Aktuelle Wahrscheinlichkeit: ${curProb.toFixed(1)}%${overdueBPTInfo}`;
+    } else if (calcType !== 'b-value' && calcType !== 'lunar-tide' && calcType !== 'tectonic-flow') {
         mathStr = "Berechnung läuft oder unzureichende Daten vorhanden.";
     }
     
@@ -1800,6 +2207,62 @@ function draw() {
                     ctx.setLineDash([]);
                 }
             }
+        }
+    }
+    
+    // --- Tectonic Migration & Stress Flow Streamlines ---
+    if (activeTectonicFlows && activeTectonicFlows.length > 0) {
+        let flowDashOffset = (Date.now() / 35) % 24;
+        for (let i = 0; i < activeTectonicFlows.length; i++) {
+            let f = activeTectonicFlows[i];
+            let e1 = f.from;
+            let e2 = f.to;
+            
+            let r1 = ((90.0 - e1.lat) / 180.0) * 723.0;
+            let a1 = e1.lon * Math.PI / 180.0;
+            let px1 = mapCx + (r1 * Math.sin(a1)) * scale;
+            let py1 = mapCy + (r1 * Math.cos(a1)) * scale;
+            
+            let r2 = ((90.0 - e2.lat) / 180.0) * 723.0;
+            let a2 = e2.lon * Math.PI / 180.0;
+            let px2 = mapCx + (r2 * Math.sin(a2)) * scale;
+            let py2 = mapCy + (r2 * Math.cos(a2)) * scale;
+            
+            if ((px1 < -50 && px2 < -50) || (px1 > width + 50 && px2 > width + 50) ||
+                (py1 < -50 && py2 < -50) || (py1 > height + 50 && py2 > height + 50)) {
+                continue;
+            }
+            
+            let midX = (px1 + px2) / 2;
+            let midY = (py1 + py2) / 2;
+            let dx = px2 - px1;
+            let dy = py2 - py1;
+            let nx = -dy * 0.12;
+            let ny = dx * 0.12;
+            let ctrlX = midX + nx;
+            let ctrlY = midY + ny;
+            
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(px1, py1);
+            ctx.quadraticCurveTo(ctrlX, ctrlY, px2, py2);
+            ctx.strokeStyle = "rgba(255, 170, 0, 0.75)";
+            ctx.lineWidth = 2.2;
+            ctx.setLineDash([8, 6]);
+            ctx.lineDashOffset = -flowDashOffset;
+            ctx.stroke();
+            
+            let headAngle = Math.atan2(py2 - ctrlY, px2 - ctrlX);
+            let arrowLen = 9;
+            ctx.setLineDash([]);
+            ctx.fillStyle = "#ffaa00";
+            ctx.beginPath();
+            ctx.moveTo(px2, py2);
+            ctx.lineTo(px2 - arrowLen * Math.cos(headAngle - 0.5), py2 - arrowLen * Math.sin(headAngle - 0.5));
+            ctx.lineTo(px2 - arrowLen * Math.cos(headAngle + 0.5), py2 - arrowLen * Math.sin(headAngle + 0.5));
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
         }
     }
     
@@ -2584,30 +3047,109 @@ try {
 // ==========================================
 // HOTSPOTS (computed on the server, the browser only loads the small JSON)
 // ==========================================
+function flyToCoords(lat, lon) {
+    if (gaiaPopup && !gaiaPopup.classList.contains('hidden')) gaiaPopup.classList.add('hidden');
+    let calcPopup = document.getElementById('calc-popup');
+    if (calcPopup && !calcPopup.classList.contains('hidden')) calcPopup.classList.add('hidden');
+    
+    let r = ((90.0 - lat) / 180.0) * 723.0;
+    let angle = lon * Math.PI / 180.0;
+    let map_x = r * Math.sin(angle);
+    let map_y = r * Math.cos(angle);
+    
+    zoom = 4.0;
+    let targetScale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
+    offsetX = -map_x * targetScale;
+    offsetY = -map_y * targetScale;
+    
+    stopAutopilot(true);
+}
+
+const EMBEDDED_HOTSPOTS_FALLBACK = {
+    "generated": "2026-10-23T16:59:30Z",
+    "model": "static 3y M5+ mainshock rate, sigma 250 km, cell 4 deg",
+    "events": 5731,
+    "mainshocks": 2843,
+    "backtest_hit_rate": 0.122,
+    "hotspots": [
+        { "lat": -18.0, "lon": -174.0, "name": "Neiafu, Tonga", "n3y": 69, "p7d": 0.357 },
+        { "lat": -6.0, "lon": 150.0, "name": "Kandrian, Papua New Guinea", "n3y": 52, "p7d": 0.283 },
+        { "lat": -58.0, "lon": -26.0, "name": "South Sandwich Islands region", "n3y": 61, "p7d": 0.323 },
+        { "lat": -30.0, "lon": -178.0, "name": "Kermadec Islands, New Zealand", "n3y": 54, "p7d": 0.292 },
+        { "lat": 2.0, "lon": 126.0, "name": "Bitung, Indonesia", "n3y": 43, "p7d": 0.24 }
+    ]
+};
+
 async function loadHotspots() {
+    let data = null;
+    
+    // 1. Try local fetch (works when hosted via http/https)
     try {
         let res = await fetch('hotspots.json?t=' + Math.floor(Date.now() / 3600000));
-        if (!res.ok) return;
-        let data = await res.json();
-        if (!data.hotspots) return;
-        for (let i = 0; i < 3; i++) {
+        if (res.ok) data = await res.json();
+    } catch (e) {
+        // file:/// protocol or local fetch blocked by browser CORS
+    }
+    
+    // 2. Fallback to GitHub raw URL if local fetch fails (e.g. file:/// in Firefox)
+    if (!data || !data.hotspots) {
+        try {
+            let res = await fetch('https://raw.githubusercontent.com/Herakles5/earthquake-app/main/hotspots.json');
+            if (res.ok) data = await res.json();
+        } catch (e) {
+            // offline or github blocked
+        }
+    }
+    
+    // 3. Fallback to embedded default dataset if all network fetches failed
+    if (!data || !data.hotspots) {
+        data = EMBEDDED_HOTSPOTS_FALLBACK;
+    }
+
+    try {
+        cachedHotspotsData = data.hotspots;
+        if (earthquakes && earthquakes.length > 0) {
+            activeDeepPrecursors = detectDeepPrecursors(earthquakes, cachedHotspotsData);
+        }
+        let count = Math.min(data.hotspots.length, 5);
+        for (let i = 0; i < count; i++) {
             let h = data.hotspots[i];
+            let row = document.getElementById('hotspot-row-' + (i + 1));
             let n = document.getElementById('hotspot-' + (i + 1) + '-name');
             let p = document.getElementById('hotspot-' + (i + 1) + '-p');
             if (!h || !n || !p) continue;
-            n.textContent = h.name;
-            n.style.maxWidth = '120px';
+            
+            let pre = activeDeepPrecursors.find(dp => dp.coupledHotspot && dp.coupledHotspot.name === h.name);
+            n.textContent = h.name + (pre ? " ⚡" : "");
+            n.style.maxWidth = '130px';
             n.style.overflow = 'hidden';
             n.style.textOverflow = 'ellipsis';
+            let titleText = `${h.name} (${h.lat.toFixed(1)}°, ${h.lon.toFixed(1)}°)\n3-Jahres M5+ Hauptbeben: ${h.n3y}\n7-Tage Poisson-Wahrscheinlichkeit: ${(h.p7d * 100).toFixed(1)}%`;
+            if (pre) {
+                titleText += `\n⚡ TIEFEN-VORLÄUFER: M${pre.deep.mag.toFixed(1)} in ${Math.round(pre.deep.depth)} km Tiefe (${pre.distKm} km Distanz, vor ${pre.ageDays}d). Viskoelastischer Schertransfer aktiv!`;
+                n.style.color = '#ffaa00';
+            } else {
+                n.style.color = '';
+            }
+            titleText += `\n(Klicken zum Zentrieren auf der Karte)`;
+            n.title = titleText;
+            p.title = titleText;
             p.textContent = Math.round(h.p7d * 100) + '%';
             p.style.color = '#ffcc00';
             p.style.fontWeight = 'bold';
+            if (row) {
+                row.title = titleText;
+                row.onclick = () => flyToCoords(h.lat, h.lon);
+            }
         }
         let card = document.getElementById('hotspot-card');
-        if (card) card.title += ' Model: ' + data.model + ' | updated ' + data.generated +
-            ' | backtest hit rate of the top-5 hotspots: ' + Math.round(data.backtest_hit_rate * 100) + '%.';
+        if (card) {
+            card.title = 'Modell: ' + (data.model || 'Poisson 3y') + ' | Aktualisiert: ' + (data.generated || 'k.A.') +
+                ' | Backtest Trefferrate (Top-5): ' + Math.round((data.backtest_hit_rate || 0.12) * 100) +
+                '%. Klicke auf einen Hotspot, um ihn auf der Karte anzuzeigen.';
+        }
     } catch (e) {
-        console.log('hotspots.json not available:', e);
+        console.log('Error rendering hotspots:', e);
     }
 }
 loadHotspots();
