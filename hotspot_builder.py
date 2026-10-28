@@ -45,7 +45,7 @@ def fetch(url):
 
 def load_events():
     """[(t_sec, mag, lat, lon, place)] M5+ of the last YEARS years, oldest first"""
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
     start = now - datetime.timedelta(days=365 * YEARS)
     ev = []
     a = start
@@ -149,11 +149,14 @@ def build():
     cells = [[LATS[k // n_lon], LONS[k % n_lon], round(v / peak, 3)]
              for k, v in enumerate(field) if v / peak >= 0.01]
 
+    hit_count = sum(h["n3y"] for h in hotspots)
+    empirical_hit_rate = round(hit_count / max(1, len(main)), 4)
+
     out = {
-        "generated": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "model": "static %dy M5+ mainshock rate, sigma %d km, cell %d deg" % (YEARS, SIGMA, CELL),
         "events": len(ev), "mainshocks": len(main),
-        "backtest_hit_rate": 0.122,
+        "backtest_hit_rate": empirical_hit_rate,
         "hotspots": hotspots,
         "cells": cells,
     }

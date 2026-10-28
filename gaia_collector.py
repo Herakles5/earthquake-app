@@ -42,7 +42,7 @@ def known_event_ids():
 
 def main():
     # We always analyze "yesterday" to ensure full 24h data is available
-    today = datetime.datetime.utcnow().date()
+    today = datetime.datetime.now(datetime.timezone.utc).date()
     yesterday = today - datetime.timedelta(days=1)
     date_str = yesterday.strftime("%Y-%m-%d")
 
@@ -95,7 +95,7 @@ def main():
                 max_mag = mag
 
             if mag >= 5.0:
-                t = datetime.datetime.utcfromtimestamp(props['time'] / 1000.0)
+                t = datetime.datetime.fromtimestamp(props['time'] / 1000.0, datetime.timezone.utc)
                 # Kp slot of this quake (3-hour blocks), only if the day has all 8 values
                 kp_at = ''
                 if len(kp_list) == 8:
@@ -138,7 +138,7 @@ def main():
             writer.writerow(["id", "time_utc", "lat", "lon", "mag", "depth_km", "kp_3h_slot"])
         writer.writerows(new_events)
 
-    print(f"[{datetime.datetime.utcnow().isoformat()}] Archived {date_str}: {row} "
+    print(f"[{datetime.datetime.now(datetime.timezone.utc).isoformat()}] Archived {date_str}: {row} "
           f"+ {len(new_events)} M5+ events")
 
 

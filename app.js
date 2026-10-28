@@ -46,6 +46,7 @@ let globalMonthEqs = [];
 let historicalM5Eqs = [];
 let historicalM7Eqs = [];
 let historicalM8Eqs = [];
+let historicalM9Eqs = [];
 let gaiaCanvas = document.getElementById('gaiaCanvas');
 let gaiaCtx = gaiaCanvas ? gaiaCanvas.getContext('2d') : null;
 let gaiaPopup = document.getElementById('gaia-popup');
@@ -505,13 +506,13 @@ function gaiaMergeEqs(...arrays) {
         });
     });
     let sorted = Array.from(map.values()).sort((a, b) => b.time - a.time);
-    // Drop USGS/EMSC twins (same quake, different id): <5 min and <2 deg apart -> keep the stronger one
+    // Drop USGS/EMSC twins (same quake, different id): <5 min and <180 km apart (handles ±180° date line) -> keep stronger
     let kept = [];
     for (let i = 0; i < sorted.length; i++) {
         let eq = sorted[i];
         let dup = false;
         for (let j = kept.length - 1; j >= 0 && (kept[j].time - eq.time) < 300000; j--) {
-            if (Math.hypot(eq.lat - kept[j].lat, eq.lon - kept[j].lon) < 2.0) {
+            if (haversineDistance(eq.lat, eq.lon, kept[j].lat, kept[j].lon) < 180.0) {
                 dup = true;
                 if (eq.mag > kept[j].mag) kept[j] = eq;
                 break;
@@ -522,14 +523,14 @@ function gaiaMergeEqs(...arrays) {
     return kept;
 }
 
-let _gaiaDS = { sig: '', all: [], m5: [], m7: [], m8: [] };
+let _gaiaDS = { sig: '', all: [], m5: [], m7: [], m8: [], m9: [] };
 let _gaiaStatCache = new Map();
 
 function gaiaDatasets() {
     let sig = [
         globalMonthEqs.length, globalMonthEqs.length ? globalMonthEqs[0].id : '',
         earthquakes.length, earthquakes.length ? earthquakes[0].id : '',
-        historicalM5Eqs.length, historicalM7Eqs.length, historicalM8Eqs.length
+        historicalM5Eqs.length, historicalM7Eqs.length, historicalM8Eqs.length, historicalM9Eqs.length
     ].join('|');
     if (sig !== _gaiaDS.sig) {
         let all = gaiaMergeEqs(globalMonthEqs, earthquakes);
@@ -538,7 +539,8 @@ function gaiaDatasets() {
             all: all,
             m5: gaiaMergeEqs(all, historicalM5Eqs),
             m7: gaiaMergeEqs(all, historicalM7Eqs),
-            m8: gaiaMergeEqs(all, historicalM8Eqs)
+            m8: gaiaMergeEqs(all, historicalM8Eqs),
+            m9: gaiaMergeEqs(all, historicalM9Eqs)
         };
         _gaiaStatCache.clear();
     }
@@ -568,7 +570,7 @@ function gaiaStatsFor(eqsNewestFirst, declusterIt) {
     };
 }
 
-// kind: 3|4|5|6|7|8 (magnitude class) or 'deep' (depth >= 150 km)
+// kind: 3|4|5|6|7|8|9 (magnitude class) or 'deep' (depth >= 150 km)
 // windowMs: optional look-back window (used for M3+/deep sidebar rows)
 function gaiaClass(kind, windowMs) {
     let ds = gaiaDatasets();
@@ -579,7 +581,7 @@ function gaiaClass(kind, windowMs) {
     if (kind === 'deep') {
         src = ds.all.filter(e => e.depth >= 150.0);
     } else {
-        let base = kind >= 8 ? ds.m8 : (kind >= 7 ? ds.m7 : (kind >= 5 ? ds.m5 : ds.all));
+        let base = kind >= 9 ? ds.m9 : (kind >= 8 ? ds.m8 : (kind >= 7 ? ds.m7 : (kind >= 5 ? ds.m5 : ds.all)));
         src = base.filter(e => e.mag >= kind);
         decl = kind >= 5;
     }
@@ -1034,7 +1036,7 @@ async function fetchEarthquakes() {
             let isDuplicate = false;
             for (let j = 0; j < earthquakes.length; j++) {
                 let e = earthquakes[j];
-                if (Math.abs(eq.time - e.time) < 300000 && Math.hypot(eq.lat - e.lat, eq.lon - e.lon) < 2.0) {
+                if (Math.abs(eq.time - e.time) < 300000 && haversineDistance(eq.lat, eq.lon, e.lat, e.lon) < 180.0) {
                     isDuplicate = true;
                     if (eq.mag > e.mag) earthquakes[j] = eq;
                     break;
@@ -1109,6 +1111,7 @@ async function fetchEarthquakes() {
                 zoom = 3.5; // Zoom in closer
                 let targetScale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
                 offsetX = -map_x * targetScale;
+                offsetY = -map_y * targetScale;
                 // Stop autopilot and clear chain when a new real earthquake arrives
                 stopAutopilot(true);
                 
@@ -1566,8 +1569,30 @@ async function fetchHistoricalData() {
             })).sort((a,b) => b.time - a.time);
         }
     } catch(e) { console.error("Failed M8+", e); }
+
+    // M9+ full instrumental catalog from USGS (since 1900, zero hardcoded events)
+    try {
+        let m9Url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=1900-01-01&endtime=${nowStr}&minmagnitude=9.0`;
+        let m9Res = await fetch(m9Url);
+        let m9Data = await m9Res.json();
+        if (m9Data.features) {
+            historicalM9Eqs = m9Data.features.map(f => ({
+                id: f.id,
+                mag: f.properties.mag,
+                depth: f.geometry.coordinates[2] || 0,
+                place: f.properties.place,
+                lat: f.geometry.coordinates[1],
+                lon: f.geometry.coordinates[0],
+                time: f.properties.time
+            })).sort((a,b) => b.time - a.time);
+        }
+    } catch(e) { console.error("Failed M9+", e); }
     
+    gaiaRecomputeAll(true);
     updateGaiaPopup();
+    if (!cachedHotspotsData || cachedHotspotsData.length === 0) {
+        loadHotspots();
+    }
 }
 
 fetchHistoricalData();
@@ -1778,6 +1803,7 @@ function updateGaiaPopup() {
     let m6Stats = calcRhythm(6);
     let m7Stats = calcRhythm(7);
     let m8Stats = calcRhythm(8);
+    let m9Stats = calcRhythm(9);
     
     let html = `<table style="width:100%; border-collapse: collapse; text-align: left; font-size: 12px;">
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.25); color:#aaa;">
@@ -1811,39 +1837,12 @@ function updateGaiaPopup() {
     if (m6Stats) addRow('M6+', m6Stats, '#ff3333');
     if (m7Stats) addRow('M7+', m7Stats, '#ff33ff');
     if (m8Stats) addRow('M8+', m8Stats, '#ff00ff');
-    
-    // M9+ real historical data
-    let m9Events = [
-        { time: new Date('2011-03-11T05:46:24Z').getTime(), place: 'Tōhoku, Japan', mag: 9.1 },
-        { time: new Date('2004-12-26T00:58:53Z').getTime(), place: 'Sumatra, Indonesia', mag: 9.1 },
-        { time: new Date('1964-03-27T17:36:00Z').getTime(), place: 'Alaska, USA', mag: 9.2 },
-        { time: new Date('1960-05-22T19:11:00Z').getTime(), place: 'Valdivia, Chile', mag: 9.5 },
-        { time: new Date('1952-11-04T16:58:00Z').getTime(), place: 'Kamchatka, Russia', mag: 9.0 }
-    ];
-    let m9TimeSince = now - m9Events[0].time;
-    let m9Gaps = computeGaps(m9Events);
-    let m9AvgGap = median(m9Gaps);
-    let m9Ratio = m9TimeSince / m9AvgGap;
-    let m9Prob = poissonProbability(m9AvgGap / gaiaChargeMultiplier, m9TimeSince);
-    let m9Status, m9StatusColor;
-    if (m9Ratio < 0.7) { m9Status = 'Resting Phase'; m9StatusColor = '#00ff88'; }
-    else if (m9Ratio < 1.0) { m9Status = 'Building Energy'; m9StatusColor = '#ff8800'; }
-    else { m9Status = 'Overdue'; m9StatusColor = '#ff3333'; }
-    let m9Progress = Math.min(150, m9Ratio * 100);
-    let m9ProbColor = Math.round(m9Prob*100) >= 50 ? '#ff3333' : '#ff8800';
-    html += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);" title="Last: M${m9Events[0].mag} — ${m9Events[0].place} (5 events since 1952)">
-        <td style="padding: 6px 2px; color:#aa00ff; font-weight:bold;">M9+</td>
-        <td style="padding: 6px 2px; color:#ddd; font-size:11px;">Every ${formatDur(m9AvgGap)}</td>
-        <td style="padding: 6px 2px; color:#fff; font-size:11px;">${formatDur(m9TimeSince)}</td>
-        <td style="padding: 6px 2px; color:${m9StatusColor}; font-weight:bold; font-size:11px;">${m9Status}</td>
-        <td style="padding: 6px 2px; color:${m9ProbColor}; font-weight:bold;">${Math.round(m9Prob*100)}%</td>
-        <td style="padding: 6px 2px;"><div class="gaia-progress-bar"><div class="gaia-progress-fill" style="width:${Math.min(100, m9Progress)}%; background:${m9StatusColor};"></div></div></td>
-    </tr>`;
+    if (m9Stats) addRow('M9+', m9Stats, '#aa00ff');
     
     html += `</table>`;
     html += `<div style="margin-top:8px; color:#888; font-size:9px; text-align:center;">Hover rows for last event details · P(%) = Poisson probability · Rhythm = Median + EMA blend</div>`;
     
-    if (historicalM5Eqs.length === 0 || historicalM7Eqs.length === 0 || historicalM8Eqs.length === 0) {
+    if (historicalM5Eqs.length === 0 || historicalM7Eqs.length === 0 || historicalM8Eqs.length === 0 || historicalM9Eqs.length === 0) {
         html += `<div style="margin-top:10px; color:#ff8800; text-align:center; font-size:11px; animation: pulse 1.5s infinite;">Fetching historical data... (Please wait 1-2s)</div>`;
     }
     
@@ -2072,6 +2071,37 @@ function draw() {
     }
     
     let now = Date.now();
+
+    // --- Draw Dynamic 300 km Hotspot Zones (from live/server Gaussian model) ---
+    if (cachedHotspotsData && cachedHotspotsData.length > 0) {
+        for (let i = 0; i < Math.min(cachedHotspotsData.length, 5); i++) {
+            let h = cachedHotspotsData[i];
+            let r = ((90.0 - h.lat) / 180.0) * 723.0;
+            let angle = h.lon * Math.PI / 180.0;
+            let px = mapCx + (r * Math.sin(angle)) * scale;
+            let py = mapCy + (r * Math.cos(angle)) * scale;
+            let radiusPx = Math.max(6, 300.0 * 0.03618 * scale);
+
+            if (px + radiusPx < 0 || px - radiusPx > width || py + radiusPx < 0 || py - radiusPx > height) {
+                continue;
+            }
+
+            let isPrecursorCoupled = activeDeepPrecursors && activeDeepPrecursors.some(
+                dp => dp.coupledHotspot && dp.coupledHotspot.name === h.name
+            );
+
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(px, py, radiusPx, 0, Math.PI * 2);
+            ctx.fillStyle = isPrecursorCoupled ? "rgba(255, 170, 0, 0.09)" : "rgba(255, 204, 0, 0.04)";
+            ctx.fill();
+            ctx.setLineDash([4, 4]);
+            ctx.strokeStyle = isPrecursorCoupled ? "rgba(255, 170, 0, 0.75)" : "rgba(255, 204, 0, 0.45)";
+            ctx.lineWidth = isPrecursorCoupled ? 1.8 : 1.2;
+            ctx.stroke();
+            ctx.restore();
+        }
+    }
     
     // --- Draw Shock Zones (Radius) ---
     for (let i = 0; i < earthquakes.length; i++) {
@@ -2609,6 +2639,24 @@ document.getElementById('btn-zoomin').addEventListener('click', () => { zoom *= 
 document.getElementById('btn-zoomout').addEventListener('click', () => { zoom /= 1.3; if(zoom < 0.2) zoom = 0.2; });
 document.getElementById('btn-reset').addEventListener('click', () => { zoom = 0.77; offsetX = 0; offsetY = 0; hideEqPopup(); });
 
+// Smooth mouse-wheel zoom centered on cursor position
+canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    let rect = canvas.getBoundingClientRect();
+    let mouseX = (e.clientX - rect.left) * (canvas.width / rect.width);
+    let mouseY = (e.clientY - rect.top) * (canvas.height / rect.height);
+
+    let factor = e.deltaY < 0 ? 1.15 : (1 / 1.15);
+    let newZoom = Math.max(0.2, Math.min(35.0, zoom * factor));
+    let actualFactor = newZoom / zoom;
+
+    let mapCx = width / 2 + offsetX;
+    let mapCy = height / 2 + offsetY;
+    offsetX = (mouseX - width / 2) - (mouseX - mapCx) * actualFactor;
+    offsetY = (mouseY - height / 2) - (mouseY - mapCy) * actualFactor;
+    zoom = newZoom;
+}, { passive: false });
+
 // Popup close button
 document.getElementById('eq-popup-close').addEventListener('click', (e) => {
     e.stopPropagation();
@@ -2821,8 +2869,10 @@ function renderSearchResults() {
         allEqs = historicalM5Eqs || [];
     } else if (currentSearchMag >= 7 && currentSearchMag < 8) {
         allEqs = historicalM7Eqs || [];
-    } else if (currentSearchMag >= 8) {
+    } else if (currentSearchMag >= 8 && currentSearchMag < 9) {
         allEqs = historicalM8Eqs || [];
+    } else if (currentSearchMag >= 9) {
+        allEqs = historicalM9Eqs || [];
     }
     
     if (allEqs.length === 0) {
@@ -2864,21 +2914,7 @@ function renderSearchResults() {
         li.innerHTML = `<span style="color:#888; font-weight:bold; margin-right:5px;">#${displayNum}</span> [${timeStr}] <span style="color:${magColor};font-weight:bold;">M${eq.mag.toFixed(1)}</span> - ${eq.place}`;
         
         li.addEventListener('click', () => {
-            // Pan to eq
-            offsetX = 0; offsetY = 0; zoom = 10;
-            let targetR = ((90.0 - eq.lat) / 180.0) * 723.0;
-            let targetAngle = eq.lon * Math.PI / 180.0;
-            
-            let scale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
-            let tx = targetR * Math.sin(targetAngle) * scale;
-            let ty = targetR * Math.cos(targetAngle) * scale;
-            
-            offsetX = -tx / zoom;
-            offsetY = -ty / zoom;
-            
-            // Show popup
-            updateEqPopup(eq, window.innerWidth / 2, window.innerHeight / 2);
-            eqPopup.classList.remove('hidden');
+            selectEqFromList(eq);
             searchPanel.classList.add('hidden'); // Close panel after click
         });
         
@@ -3064,20 +3100,105 @@ function flyToCoords(lat, lon) {
     stopAutopilot(true);
 }
 
-const EMBEDDED_HOTSPOTS_FALLBACK = {
-    "generated": "2026-10-23T16:59:30Z",
-    "model": "static 3y M5+ mainshock rate, sigma 250 km, cell 4 deg",
-    "events": 5731,
-    "mainshocks": 2843,
-    "backtest_hit_rate": 0.122,
-    "hotspots": [
-        { "lat": -18.0, "lon": -174.0, "name": "Neiafu, Tonga", "n3y": 69, "p7d": 0.357 },
-        { "lat": -6.0, "lon": 150.0, "name": "Kandrian, Papua New Guinea", "n3y": 52, "p7d": 0.283 },
-        { "lat": -58.0, "lon": -26.0, "name": "South Sandwich Islands region", "n3y": 61, "p7d": 0.323 },
-        { "lat": -30.0, "lon": -178.0, "name": "Kermadec Islands, New Zealand", "n3y": 54, "p7d": 0.292 },
-        { "lat": 2.0, "lon": 126.0, "name": "Bitung, Indonesia", "n3y": 43, "p7d": 0.24 }
-    ]
-};
+// Dynamic Hotspot Engine: computes Top-5 M5+ hotspots directly from the live USGS catalog
+// using Gardner-Knopoff declustering + 250 km Gaussian kernel + 300 km Poisson rate (zero hardcoded data).
+function computeDynamicHotspotsFromCatalog() {
+    let ds = gaiaDatasets();
+    let src = (ds && ds.m5 && ds.m5.length > 0) ? ds.m5.filter(e => e.mag >= 5.0) : [];
+    if (src.length < 10) return null;
+
+    let main = declusterGK(src);
+    let newestMs = main[0].time;
+    let oldestMs = main[main.length - 1].time;
+    let spanWeeks = Math.max(1.0, (newestMs - oldestMs) / (7 * 86400000));
+
+    let cellDeg = 4.0;
+    let sigmaKm = 250.0;
+    let radiusKm = 300.0;
+    let sepKm = 800.0;
+    let lats = [];
+    for (let la = -78; la <= 78; la += cellDeg) lats.push(la);
+    let lons = [];
+    for (let lo = -178; lo < 180; lo += cellDeg) lons.push(lo);
+
+    let nLon = lons.length;
+    let field = new Float64Array(lats.length * nLon);
+
+    for (let k = 0; k < main.length; k++) {
+        let ev = main[k];
+        let dlat = (3 * sigmaKm) / 111.0;
+        let dlon = dlat / Math.max(0.2, Math.cos(ev.lat * Math.PI / 180.0));
+        for (let i = 0; i < lats.length; i++) {
+            let cla = lats[i];
+            if (Math.abs(cla - ev.lat) > dlat) continue;
+            for (let j = 0; j < nLon; j++) {
+                let clo = lons[j];
+                let dl = Math.abs(clo - ev.lon);
+                if (dl > 180) dl = 360 - dl;
+                if (dl > dlon) continue;
+                let d = haversineDistance(ev.lat, ev.lon, cla, clo);
+                if (d < 3 * sigmaKm) {
+                    field[i * nLon + j] += Math.exp(-0.5 * (d / sigmaKm) * (d / sigmaKm));
+                }
+            }
+        }
+    }
+
+    let indices = Array.from({ length: field.length }, (_, idx) => idx);
+    indices.sort((a, b) => field[b] - field[a]);
+
+    let tops = [];
+    for (let idx of indices) {
+        if (field[idx] <= 0) break;
+        let la = lats[Math.floor(idx / nLon)];
+        let lo = lons[idx % nLon];
+        let farEnough = true;
+        for (let t of tops) {
+            if (haversineDistance(la, lo, t[0], t[1]) <= sepKm) {
+                farEnough = false;
+                break;
+            }
+        }
+        if (farEnough) {
+            tops.push([la, lo]);
+            if (tops.length >= 5) break;
+        }
+    }
+
+    let hotspots = tops.map(([la, lo]) => {
+        let near = main.filter(e => haversineDistance(la, lo, e.lat, e.lon) <= radiusKm);
+        let rate = near.length / spanWeeks;
+        let p7 = 1.0 - Math.exp(-rate);
+        let nearest = main[0];
+        let minDist = Infinity;
+        for (let e of main) {
+            let d = haversineDistance(la, lo, e.lat, e.lon);
+            if (d < minDist) {
+                minDist = d;
+                nearest = e;
+            }
+        }
+        return {
+            lat: la,
+            lon: lo,
+            name: cleanPlaceName(nearest.place) || `${la.toFixed(0)}°, ${lo.toFixed(0)}°`,
+            n3y: near.length,
+            p7d: Number(p7.toFixed(3))
+        };
+    });
+
+    let hitCount = hotspots.reduce((s, h) => s + h.n3y, 0);
+    let empiricalHitRate = Number((hitCount / Math.max(1, main.length)).toFixed(4));
+
+    return {
+        generated: new Date().toISOString(),
+        model: `dynamic live M5+ mainshock rate (${main.length} mainshocks), sigma 250 km`,
+        events: src.length,
+        mainshocks: main.length,
+        backtest_hit_rate: empiricalHitRate,
+        hotspots: hotspots
+    };
+}
 
 async function loadHotspots() {
     let data = null;
@@ -3100,10 +3221,11 @@ async function loadHotspots() {
         }
     }
     
-    // 3. Fallback to embedded default dataset if all network fetches failed
+    // 3. Dynamic calculation from live USGS M5+ catalog (zero hardcoded fallback!)
     if (!data || !data.hotspots) {
-        data = EMBEDDED_HOTSPOTS_FALLBACK;
+        data = computeDynamicHotspotsFromCatalog();
     }
+    if (!data || !data.hotspots) return;
 
     try {
         cachedHotspotsData = data.hotspots;
