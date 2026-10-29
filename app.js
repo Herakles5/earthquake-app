@@ -190,22 +190,96 @@ function cleanPlaceName(rawPlace) {
     return p.trim();
 }
 
-function getSpatialClusterRegion(eqList, limit, maxRadiusKm = 250) {
+// ========== Seismo-Tectonic Fault Projection & Kinematic Trajectory Engine ==========
+let predictedTectonicTargets = [];
+
+function snapToNearestPlateBoundary(lat, lon, maxSearchKm = 350) {
+    if (typeof tectonic_plates === 'undefined' || !tectonic_plates || tectonic_plates.length === 0) {
+        return { lat: lat, lon: lon, distKm: 9999, snapped: false, strikeDeg: 0 };
+    }
+    let bestLat = lat;
+    let bestLon = lon;
+    let minDist = Infinity;
+    let bestStrike = 0;
+
+    for (let i = 0; i < tectonic_plates.length; i++) {
+        let seg = tectonic_plates[i]; // [lon1, lat1, lon2, lat2]
+        let lon1 = seg[0], lat1 = seg[1], lon2 = seg[2], lat2 = seg[3];
+        if (Math.abs(lat1 - lat) > 8 && Math.abs(lat2 - lat) > 8) continue;
+
+        let dx = lon2 - lon1;
+        let dy = lat2 - lat1;
+        if (Math.abs(dx) > 180) continue;
+        let len2 = dx * dx + dy * dy;
+        let t = 0.5;
+        if (len2 > 1e-10) {
+            t = ((lon - lon1) * dx + (lat - lat1) * dy) / len2;
+            t = Math.max(0.0, Math.min(1.0, t));
+        }
+        let projLon = lon1 + t * dx;
+        let projLat = lat1 + t * dy;
+        let d = haversineDistance(lat, lon, projLat, projLon);
+        if (d < minDist) {
+            minDist = d;
+            bestLat = projLat;
+            bestLon = projLon;
+            bestStrike = (Math.atan2(dx * Math.cos(lat * Math.PI / 180.0), dy) * 180.0 / Math.PI + 360.0) % 360.0;
+        }
+    }
+
+    if (minDist <= maxSearchKm) {
+        // Blend 75% onto the exact tectonic fault line, 25% kinematic projection
+        return {
+            lat: 0.75 * bestLat + 0.25 * lat,
+            lon: 0.75 * bestLon + 0.25 * lon,
+            distKm: Math.round(minDist),
+            snapped: true,
+            strikeDeg: Math.round(bestStrike)
+        };
+    }
+    return { lat: lat, lon: lon, distKm: Math.round(minDist), snapped: false, strikeDeg: 0 };
+}
+
+function resolveNearestPlaceName(lat, lon, fallbackPlace) {
+    let pool = (globalMonthEqs && globalMonthEqs.length > 0) ? globalMonthEqs : earthquakes;
+    if (historicalM5Eqs && historicalM5Eqs.length > 0) {
+        pool = pool.concat(historicalM5Eqs.slice(0, 300));
+    }
+    let bestPlace = fallbackPlace;
+    let minD = 320.0;
+    for (let i = 0; i < pool.length; i++) {
+        let e = pool[i];
+        if (!e || !e.place) continue;
+        let d = haversineDistance(lat, lon, e.lat, e.lon);
+        if (d < minD) {
+            minD = d;
+            bestPlace = cleanPlaceName(e.place);
+        }
+    }
+    return bestPlace || fallbackPlace;
+}
+
+function getSpatialClusterRegion(eqList, limit, maxRadiusKm = 450) {
     if (!eqList || eqList.length === 0) {
         return { label: 'N/A', lat: 0, lon: 0, count: 0, isCluster: false };
     }
-    let sample = eqList.slice(0, Math.min(limit, eqList.length));
+    let sample = eqList.slice(0, Math.min(Math.max(limit, 8), eqList.length));
     if (sample.length === 1) {
         let pName = cleanPlaceName(sample[0].place);
+        let snap1 = snapToNearestPlateBoundary(sample[0].lat, sample[0].lon, 250);
         return {
             label: pName,
             placeClean: pName,
-            lat: sample[0].lat,
-            lon: sample[0].lon,
+            lat: snap1.lat,
+            lon: snap1.lon,
+            originLat: sample[0].lat,
+            originLon: sample[0].lon,
             count: 1,
             totalSample: 1,
             isCluster: false,
-            strongestMag: sample[0].mag
+            strongestMag: sample[0].mag,
+            shiftKm: snap1.snapped ? snap1.distKm : 0,
+            dirLabel: snap1.snapped ? 'Fault-Locked' : 'Stationary'
         };
     }
 
@@ -222,7 +296,10 @@ function getSpatialClusterRegion(eqList, limit, maxRadiusKm = 250) {
             let d = haversineDistance(seed.lat, seed.lon, other.lat, other.lon);
             if (d <= maxRadiusKm) {
                 cluster.push(other);
-                let w = Math.pow(10, 0.25 * (other.mag - 3.0));
+                // Weight by both magnitude and recency
+                let ageHours = Math.max(0.1, (sample[0].time - other.time) / 3600000.0);
+                let recW = Math.exp(-ageHours / 36.0);
+                let w = Math.pow(10, 0.25 * (other.mag - 3.0)) * (0.5 + 0.5 * recW);
                 score += w;
             }
         }
@@ -233,9 +310,11 @@ function getSpatialClusterRegion(eqList, limit, maxRadiusKm = 250) {
         }
     }
 
+    // Sort cluster chronologically (oldest -> newest) to trace the tectonic movement sequence!
+    let chron = bestCluster.slice().sort((a, b) => a.time - b.time);
     let sumLat = 0, sumLon = 0, sumW = 0;
-    let strongest = bestCluster[0];
-    for (let eq of bestCluster) {
+    let strongest = chron[0];
+    for (let eq of chron) {
         let w = Math.pow(10, 0.3 * (eq.mag - 3.0));
         sumLat += eq.lat * w;
         sumLon += eq.lon * w;
@@ -245,19 +324,96 @@ function getSpatialClusterRegion(eqList, limit, maxRadiusKm = 250) {
     let centLat = sumW > 0 ? sumLat / sumW : bestSeed.lat;
     let centLon = sumW > 0 ? sumLon / sumW : bestSeed.lon;
 
-    let placeClean = cleanPlaceName(strongest.place);
+    // Calculate kinematic directional migration vector across the sequence (t_1 -> t_2 -> ... -> t_n)
+    let latestEq = chron[chron.length - 1];
+    let dLatTotal = 0.0, dLonTotal = 0.0, dDepthTotal = 0.0, stepWeightSum = 0.0;
+
+    if (chron.length >= 2) {
+        for (let k = 1; k < chron.length; k++) {
+            let prev = chron[k - 1];
+            let curr = chron[k];
+            let stepDist = haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon);
+            if (stepDist < 2.0 || stepDist > maxRadiusKm) continue;
+            let dLat = curr.lat - prev.lat;
+            let dLon = curr.lon - prev.lon;
+            if (dLon > 180) dLon -= 360;
+            if (dLon < -180) dLon += 360;
+            let dDepth = (curr.depth || 10) - (prev.depth || 10);
+            // Newer steps in the chain carry higher momentum weight
+            let wStep = Math.pow(1.6, k) * Math.pow(1.25, Math.max(0, curr.mag - 3.5));
+            dLatTotal += dLat * wStep;
+            dLonTotal += dLon * wStep;
+            dDepthTotal += dDepth * wStep;
+            stepWeightSum += wStep;
+        }
+    } else if (sample.length >= 2) {
+        // Fallback: global recent sequential step if cluster has 1 event
+        let prev = sample[1];
+        let curr = sample[0];
+        let stepDist = haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon);
+        if (stepDist <= 1200) {
+            dLatTotal = (curr.lat - prev.lat) * 0.35;
+            dLonTotal = (curr.lon - prev.lon) * 0.35;
+            stepWeightSum = 1.0;
+        }
+    }
+
+    let projLat = latestEq.lat;
+    let projLon = latestEq.lon;
+    if (stepWeightSum > 0) {
+        let meanStepLat = dLatTotal / stepWeightSum;
+        let meanStepLon = dLonTotal / stepWeightSum;
+        let meanStepDepth = dDepthTotal / stepWeightSum;
+        // Updip amplification: if hypocenters are migrating upward (dDepth < 0), stress focuses strongly ahead
+        let updipBoost = meanStepDepth < -5.0 ? 1.25 : 1.0;
+        projLat = latestEq.lat + meanStepLat * 0.85 * updipBoost;
+        projLon = latestEq.lon + meanStepLon * 0.85 * updipBoost;
+    } else {
+        projLat = 0.65 * latestEq.lat + 0.35 * centLat;
+        projLon = 0.65 * latestEq.lon + 0.35 * centLon;
+    }
+
+    projLat = Math.max(-85.0, Math.min(85.0, projLat));
+    if (projLon > 180.0) projLon -= 360.0;
+    if (projLon < -180.0) projLon += 360.0;
+
+    // Couple/snap projected epicenter to the actual tectonic plate boundary in plates.js
+    let snapped = snapToNearestPlateBoundary(projLat, projLon, 350);
+    let finalLat = snapped.lat;
+    let finalLon = snapped.lon;
+
+    let shiftKm = Math.round(haversineDistance(centLat, centLon, finalLat, finalLon));
+    let dLonRad = (finalLon - centLon) * Math.PI / 180.0;
+    let lat1Rad = centLat * Math.PI / 180.0;
+    let lat2Rad = finalLat * Math.PI / 180.0;
+    let y = Math.sin(dLonRad) * Math.cos(lat2Rad);
+    let x = Math.cos(lat1Rad) * Math.sin(lat2Rad) - Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLonRad);
+    let bearing = (Math.atan2(y, x) * 180.0 / Math.PI + 360.0) % 360.0;
+    let dirName = (typeof bearingToDirection === 'function') ? bearingToDirection(bearing) : 'NE';
+
+    let fallbackPlace = cleanPlaceName(latestEq.place || strongest.place);
+    let placeClean = resolveNearestPlaceName(finalLat, finalLon, fallbackPlace);
     let isCluster = bestCluster.length >= 2;
-    let label = isCluster ? `${placeClean} (${bestCluster.length}x swarm)` : placeClean;
+    let dirTag = shiftKm >= 8 ? ` ➔ ${dirName} ${shiftKm}km` : '';
+    let label = isCluster ? `${placeClean}${dirTag} (${bestCluster.length}x)` : `${placeClean}${dirTag}`;
 
     return {
         label: label,
         placeClean: placeClean,
-        lat: centLat,
-        lon: centLon,
+        lat: finalLat,
+        lon: finalLon,
+        originLat: latestEq.lat,
+        originLon: latestEq.lon,
+        centroidLat: centLat,
+        centroidLon: centLon,
         count: bestCluster.length,
         totalSample: sample.length,
         isCluster: isCluster,
-        strongestMag: strongest.mag
+        strongestMag: strongest.mag,
+        shiftKm: shiftKm,
+        bearing: Math.round(bearing),
+        dirName: dirName,
+        faultSnapped: snapped.snapped
     };
 }
 
@@ -1225,39 +1381,53 @@ async function fetchEarthquakes() {
         // Global 24h & matrix recalculation
         gaiaRecomputeAll(true);
         
-        // Calculate predicted spatial cluster regions
+        // Calculate predicted spatial cluster regions & kinematic fault-boundary projections
+        predictedTectonicTargets = [];
         if (earthquakes.length > 0) {
-            let spat5 = getSpatialClusterRegion(earthquakes, 5);
+            let spat5 = getSpatialClusterRegion(earthquakes, 12);
+            spat5.targetType = 'M2.5+ Next Target';
+            predictedTectonicTargets.push(spat5);
             let reg5 = document.getElementById('prediction-region-5');
             if (reg5) {
                 reg5.textContent = spat5.label;
-                reg5.title = `Swarm Centroid: ${spat5.lat.toFixed(2)}°, ${spat5.lon.toFixed(2)}° (${spat5.count} of ${spat5.totalSample} quakes)\nClick to center map.`;
+                reg5.title = `Projected Tectonic Target: ${spat5.lat.toFixed(2)}°, ${spat5.lon.toFixed(2)}°\n` +
+                    `Origin Cluster: ${(spat5.originLat || spat5.lat).toFixed(2)}°, ${(spat5.originLon || spat5.lon).toFixed(2)}° (${spat5.count} of ${spat5.totalSample} quakes)\n` +
+                    `Kinematic Vector: ${spat5.dirName || 'N/A'} (${spat5.bearing || 0}°, +${spat5.shiftKm || 0} km along fault${spat5.faultSnapped ? ' [Plate-Locked]' : ''})\n` +
+                    `Click to center map on projected epicenter.`;
                 reg5.onclick = () => flyToCoords(spat5.lat, spat5.lon);
             }
             
-            let spat24 = getSpatialClusterRegion(earthquakes, earthquakes.length);
+            let spat24 = getSpatialClusterRegion(earthquakes, Math.min(earthquakes.length, 40));
             let reg24 = document.getElementById('prediction-region-24h');
             if (reg24) {
                 reg24.textContent = spat24.label;
-                reg24.title = `24h Activity Centroid: ${spat24.lat.toFixed(2)}°, ${spat24.lon.toFixed(2)}° (${spat24.count} quakes in cluster)\nClick to center map.`;
+                reg24.title = `24h Kinematic Trajectory Target: ${spat24.lat.toFixed(2)}°, ${spat24.lon.toFixed(2)}° (${spat24.count} quakes in sequence)\n` +
+                    `Migration Vector: ${spat24.dirName || 'N/A'} (+${spat24.shiftKm || 0} km${spat24.faultSnapped ? ' [Plate-Locked]' : ''})\n` +
+                    `Click to center map.`;
                 reg24.onclick = () => flyToCoords(spat24.lat, spat24.lon);
             }
         }
         
         if (eqsM4.length > 0) {
-            let spat5m4 = getSpatialClusterRegion(eqsM4, 5);
+            let spat5m4 = getSpatialClusterRegion(eqsM4, 10, 650);
+            spat5m4.targetType = 'M4.0+ Next Target';
+            predictedTectonicTargets.push(spat5m4);
             let reg5m4 = document.getElementById('prediction-region-5-m4');
             if (reg5m4) {
                 reg5m4.textContent = spat5m4.label;
-                reg5m4.title = `M4+ Swarm Centroid: ${spat5m4.lat.toFixed(2)}°, ${spat5m4.lon.toFixed(2)}°\nClick to center map.`;
+                reg5m4.title = `M4+ Projected Fault Target: ${spat5m4.lat.toFixed(2)}°, ${spat5m4.lon.toFixed(2)}°\n` +
+                    `Kinematic Vector: ${spat5m4.dirName || 'N/A'} (${spat5m4.bearing || 0}°, +${spat5m4.shiftKm || 0} km${spat5m4.faultSnapped ? ' [Plate-Locked]' : ''})\n` +
+                    `Click to center map on projected M4+ epicenter.`;
                 reg5m4.onclick = () => flyToCoords(spat5m4.lat, spat5m4.lon);
             }
             
-            let spat24m4 = getSpatialClusterRegion(eqsM4, eqsM4.length);
+            let spat24m4 = getSpatialClusterRegion(eqsM4, eqsM4.length, 650);
             let reg24m4 = document.getElementById('prediction-region-24h-m4');
             if (reg24m4) {
                 reg24m4.textContent = spat24m4.label;
-                reg24m4.title = `M4+ 24h Activity Centroid: ${spat24m4.lat.toFixed(2)}°, ${spat24m4.lon.toFixed(2)}°\nClick to center map.`;
+                reg24m4.title = `M4+ 24h Kinematic Target: ${spat24m4.lat.toFixed(2)}°, ${spat24m4.lon.toFixed(2)}°\n` +
+                    `Migration Vector: ${spat24m4.dirName || 'N/A'} (+${spat24m4.shiftKm || 0} km${spat24m4.faultSnapped ? ' [Plate-Locked]' : ''})\n` +
+                    `Click to center map.`;
                 reg24m4.onclick = () => flyToCoords(spat24m4.lat, spat24m4.lon);
             }
         }
@@ -1590,12 +1760,11 @@ async function fetchHistoricalData() {
     
     gaiaRecomputeAll(true);
     updateGaiaPopup();
-    if (!cachedHotspotsData || cachedHotspotsData.length === 0) {
-        loadHotspots();
-    }
+    loadHotspots();
 }
 
 fetchHistoricalData();
+setInterval(fetchHistoricalData, 1800000); // refresh live USGS M5+ catalog & dynamic hotspots every 30 min
 
 function drawGaiaDiagram() {
     if (!gaiaCanvas || !gaiaCtx || !gaiaContainer) return;
@@ -2291,6 +2460,71 @@ function draw() {
             ctx.lineTo(px2 - arrowLen * Math.cos(headAngle + 0.5), py2 - arrowLen * Math.sin(headAngle + 0.5));
             ctx.closePath();
             ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    // --- Seismo-Tectonic Kinematic Target Projections (Predicted Next Fault Epicenters) ---
+    if (predictedTectonicTargets && predictedTectonicTargets.length > 0) {
+        let targetPulse = (Math.sin(Date.now() / 220.0) + 1.0) * 0.5;
+        let dashAnim = (Date.now() / 25) % 16;
+        for (let tIdx = 0; tIdx < predictedTectonicTargets.length; tIdx++) {
+            let pt = predictedTectonicTargets[tIdx];
+            if (!pt || (pt.lat === 0 && pt.lon === 0)) continue;
+            let isM4Target = pt.targetType && pt.targetType.includes('M4.0+');
+            let strokeCol = isM4Target ? "rgba(255, 60, 220, 0.9)" : "rgba(0, 255, 255, 0.9)";
+            let glowCol = isM4Target ? "rgba(255, 60, 220, 0.22)" : "rgba(0, 255, 255, 0.22)";
+
+            let rT = ((90.0 - pt.lat) / 180.0) * 723.0;
+            let aT = pt.lon * Math.PI / 180.0;
+            let pxT = mapCx + (rT * Math.sin(aT)) * scale;
+            let pyT = mapCy + (rT * Math.cos(aT)) * scale;
+
+            if (pxT < -40 || pxT > width + 40 || pyT < -40 || pyT > height + 40) continue;
+
+            ctx.save();
+            // Draw forward kinematic projection vector from latest cluster origin -> projected fault target
+            if (pt.originLat !== undefined && pt.originLon !== undefined && pt.shiftKm >= 5) {
+                let rO = ((90.0 - pt.originLat) / 180.0) * 723.0;
+                let aO = pt.originLon * Math.PI / 180.0;
+                let pxO = mapCx + (rO * Math.sin(aO)) * scale;
+                let pyO = mapCy + (rO * Math.cos(aO)) * scale;
+
+                ctx.beginPath();
+                ctx.moveTo(pxO, pyO);
+                ctx.lineTo(pxT, pyT);
+                ctx.strokeStyle = strokeCol;
+                ctx.lineWidth = 2.0;
+                ctx.setLineDash([5, 4]);
+                ctx.lineDashOffset = -dashAnim;
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            // Draw pulsing target reticle on projected fault coordinate
+            let radOuter = (9 + targetPulse * 5) * Math.min(1.6, Math.max(0.85, zoom * 0.7));
+            ctx.beginPath();
+            ctx.arc(pxT, pyT, radOuter, 0, Math.PI * 2);
+            ctx.fillStyle = glowCol;
+            ctx.fill();
+            ctx.strokeStyle = strokeCol;
+            ctx.lineWidth = 1.6;
+            ctx.stroke();
+
+            // Crosshair ticks
+            let ch = radOuter + 4;
+            ctx.beginPath();
+            ctx.moveTo(pxT - ch, pyT);
+            ctx.lineTo(pxT - radOuter * 0.4, pyT);
+            ctx.moveTo(pxT + radOuter * 0.4, pyT);
+            ctx.lineTo(pxT + ch, pyT);
+            ctx.moveTo(pxT, pyT - ch);
+            ctx.lineTo(pxT, pyT - radOuter * 0.4);
+            ctx.moveTo(pxT, pyT + radOuter * 0.4);
+            ctx.lineTo(pxT, pyT + ch);
+            ctx.strokeStyle = strokeCol;
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
             ctx.restore();
         }
     }
@@ -3126,6 +3360,12 @@ function computeDynamicHotspotsFromCatalog() {
 
     for (let k = 0; k < main.length; k++) {
         let ev = main[k];
+        // Recency weighting: recent M5+ mainshocks (last 30–90 days) boost emerging new hotspots immediately
+        let ageDays = Math.max(0, (newestMs - ev.time) / 86400000.0);
+        let recencyWeight = 1.0 + 1.25 * Math.exp(-ageDays / 45.0);
+        let magWeight = Math.pow(1.35, Math.max(0, ev.mag - 5.0));
+        let eventWeight = recencyWeight * magWeight;
+
         let dlat = (3 * sigmaKm) / 111.0;
         let dlon = dlat / Math.max(0.2, Math.cos(ev.lat * Math.PI / 180.0));
         for (let i = 0; i < lats.length; i++) {
@@ -3138,7 +3378,7 @@ function computeDynamicHotspotsFromCatalog() {
                 if (dl > dlon) continue;
                 let d = haversineDistance(ev.lat, ev.lon, cla, clo);
                 if (d < 3 * sigmaKm) {
-                    field[i * nLon + j] += Math.exp(-0.5 * (d / sigmaKm) * (d / sigmaKm));
+                    field[i * nLon + j] += eventWeight * Math.exp(-0.5 * (d / sigmaKm) * (d / sigmaKm));
                 }
             }
         }
@@ -3189,7 +3429,10 @@ function computeSeismicEntropyMetricsJS(nearEvents) {
         let magBin = Math.min(255, Math.max(0, Math.round((ev.mag - 4.5) * 25)));
         let dtBin = 128;
         if (idx > 0) {
-            let dtDays = Math.max(0.01, Math.abs(ev.t - nearEvents[idx - 1].t) / 86400.0);
+            let prevEv = nearEvents[idx - 1];
+            let currMs = (ev.time !== undefined) ? ev.time : (ev.t * 1000.0);
+            let prevMs = (prevEv.time !== undefined) ? prevEv.time : (prevEv.t * 1000.0);
+            let dtDays = Math.max(0.01, Math.abs(currMs - prevMs) / 86400000.0);
             dtBin = Math.min(255, Math.max(0, Math.round(Math.log1p(dtDays) * 32)));
         }
         streamBytes.push(magBin, dtBin);
@@ -3232,10 +3475,38 @@ function computeSeismicEntropyMetricsJS(nearEvents) {
     return { entropy_bits: fullH, dh_dt: dhDt, consensus_coherence: coherence };
 }
 
+        // Trace recent chronological sequence inside this hotspot to project next fault rupture point
+        let recentChain = near.slice(-8);
+        let dLatH = 0.0, dLonH = 0.0, wSumH = 0.0;
+        for (let k = 1; k < recentChain.length; k++) {
+            let pEv = recentChain[k - 1];
+            let cEv = recentChain[k];
+            let dStep = haversineDistance(pEv.lat, pEv.lon, cEv.lat, cEv.lon);
+            if (dStep >= 5.0 && dStep <= 300.0) {
+                let wS = Math.pow(1.4, k);
+                let dl = cEv.lon - pEv.lon;
+                if (dl > 180) dl -= 360;
+                if (dl < -180) dl += 360;
+                dLatH += (cEv.lat - pEv.lat) * wS;
+                dLonH += dl * wS;
+                wSumH += wS;
+            }
+        }
+        let rawTargetLat = wSumH > 0 ? (la + (dLatH / wSumH) * 0.65) : la;
+        let rawTargetLon = wSumH > 0 ? (lo + (dLonH / wSumH) * 0.65) : lo;
+        let snapH = snapToNearestPlateBoundary(rawTargetLat, rawTargetLon, 280);
+        let finalHLat = Number(snapH.lat.toFixed(2));
+        let finalHLon = Number(snapH.lon.toFixed(2));
+        let shiftHKm = Math.round(haversineDistance(la, lo, finalHLat, finalHLon));
+
         return {
-            lat: la,
-            lon: lo,
-            name: cleanPlaceName(nearest.place) || `${la.toFixed(0)}°, ${lo.toFixed(0)}°`,
+            lat: finalHLat,
+            lon: finalHLon,
+            gridLat: la,
+            gridLon: lo,
+            shiftKm: shiftHKm,
+            faultSnapped: snapH.snapped,
+            name: resolveNearestPlaceName(finalHLat, finalHLon, cleanPlaceName(nearest.place)) || `${finalHLat.toFixed(0)}°, ${finalHLon.toFixed(0)}°`,
             n3y: near.length,
             p7d: Number(p7.toFixed(3)),
             ...computeSeismicEntropyMetricsJS(near)
@@ -3247,7 +3518,7 @@ function computeSeismicEntropyMetricsJS(nearEvents) {
 
     return {
         generated: new Date().toISOString(),
-        model: `dynamic live M5+ mainshock rate (${main.length} mainshocks), sigma 250 km`,
+        model: `dynamic live M5+ mainshock rate + tectonic fault trajectory (${main.length} mainshocks), sigma 250 km`,
         events: src.length,
         mainshocks: main.length,
         backtest_hit_rate: empiricalHitRate,
@@ -3256,17 +3527,21 @@ function computeSeismicEntropyMetricsJS(nearEvents) {
 }
 
 async function loadHotspots() {
-    let data = null;
+    // 1. Always prioritize live dynamic calculation from the real-time USGS M5+ catalog
+    //    so newly emerging earthquake clusters immediately appear in the Top-5!
+    let data = computeDynamicHotspotsFromCatalog();
     
-    // 1. Try local fetch (works when hosted via http/https)
-    try {
-        let res = await fetch('hotspots.json?t=' + Math.floor(Date.now() / 3600000));
-        if (res.ok) data = await res.json();
-    } catch (e) {
-        // file:/// protocol or local fetch blocked by browser CORS
+    // 2. Only fall back to precomputed hotspots.json during initial 1s boot before USGS responds (or if offline)
+    if (!data || !data.hotspots) {
+        try {
+            let res = await fetch('hotspots.json?t=' + Math.floor(Date.now() / 3600000));
+            if (res.ok) data = await res.json();
+        } catch (e) {
+            // file:/// protocol or local fetch blocked by browser CORS
+        }
     }
     
-    // 2. Fallback to GitHub raw URL if local fetch fails (e.g. file:/// in Firefox)
+    // 3. Fallback to GitHub raw URL if local fetch also fails
     if (!data || !data.hotspots) {
         try {
             let res = await fetch('https://raw.githubusercontent.com/Herakles5/earthquake-app/main/hotspots.json');
@@ -3274,11 +3549,6 @@ async function loadHotspots() {
         } catch (e) {
             // offline or github blocked
         }
-    }
-    
-    // 3. Dynamic calculation from live USGS M5+ catalog (zero hardcoded fallback!)
-    if (!data || !data.hotspots) {
-        data = computeDynamicHotspotsFromCatalog();
     }
     if (!data || !data.hotspots) return;
 
@@ -3300,7 +3570,10 @@ async function loadHotspots() {
             n.style.maxWidth = '130px';
             n.style.overflow = 'hidden';
             n.style.textOverflow = 'ellipsis';
-            let titleText = `${h.name} (${h.lat.toFixed(1)}°, ${h.lon.toFixed(1)}°)\n3-Year M5+ Mainshocks: ${h.n3y}\n7-Day Poisson Probability: ${(h.p7d * 100).toFixed(1)}%`;
+            let titleText = `${h.name} (${h.lat.toFixed(2)}°, ${h.lon.toFixed(2)}°)\n3-Year M5+ Mainshocks: ${h.n3y}\n7-Day Poisson Probability: ${(h.p7d * 100).toFixed(1)}%`;
+            if (h.shiftKm !== undefined) {
+                titleText += `\nTectonic Fault Projection: +${h.shiftKm} km along plate boundary${h.faultSnapped ? ' [Fault-Locked]' : ''}`;
+            }
             if (typeof h.entropy_bits === 'number') {
                 titleText += `\nSeismic Shannon Entropy: ${h.entropy_bits.toFixed(2)} bits (dH/dt: ${h.dh_dt >= 0 ? '+' : ''}${(h.dh_dt || 0).toFixed(4)} | Coherence: ${Math.round((h.consensus_coherence || 0.9) * 100)}%)`;
             }
