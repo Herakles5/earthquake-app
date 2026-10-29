@@ -3178,12 +3178,67 @@ function computeDynamicHotspotsFromCatalog() {
                 nearest = e;
             }
         }
+function computeSeismicEntropyMetricsJS(nearEvents) {
+    if (!nearEvents || nearEvents.length === 0) {
+        return { entropy_bits: 0.0, dh_dt: 0.0, consensus_coherence: 0.5 };
+    }
+    let streamBytes = [];
+    let chunkSize = Math.max(3, Math.floor(nearEvents.length / 4));
+    for (let idx = 0; idx < nearEvents.length; idx++) {
+        let ev = nearEvents[idx];
+        let magBin = Math.min(255, Math.max(0, Math.round((ev.mag - 4.5) * 25)));
+        let dtBin = 128;
+        if (idx > 0) {
+            let dtDays = Math.max(0.01, Math.abs(ev.t - nearEvents[idx - 1].t) / 86400.0);
+            dtBin = Math.min(255, Math.max(0, Math.round(Math.log1p(dtDays) * 32)));
+        }
+        streamBytes.push(magBin, dtBin);
+    }
+    function shannonBits(arr) {
+        if (!arr || arr.length === 0) return 0.0;
+        let counts = {};
+        for (let b of arr) counts[b] = (counts[b] || 0) + 1;
+        let n = arr.length;
+        let h = 0.0;
+        for (let k in counts) {
+            let p = counts[k] / n;
+            h -= p * Math.log2(p);
+        }
+        return Number(h.toFixed(4));
+    }
+    let fullH = shannonBits(streamBytes);
+    let windowEntropies = [];
+    let stepB = Math.max(4, chunkSize * 2);
+    for (let i = 0; i < streamBytes.length; i += stepB) {
+        let sub = streamBytes.slice(i, i + stepB);
+        if (sub.length >= 2) windowEntropies.push(shannonBits(sub));
+    }
+    let dhDt = 0.0;
+    let nW = windowEntropies.length;
+    if (nW >= 2) {
+        let sumT = 0, sumH = 0, sumTH = 0, sumT2 = 0;
+        for (let i = 0; i < nW; i++) {
+            sumT += i;
+            sumH += windowEntropies[i];
+            sumTH += i * windowEntropies[i];
+            sumT2 += i * i;
+        }
+        let denom = nW * sumT2 - sumT * sumT;
+        if (Math.abs(denom) > 1e-12) {
+            dhDt = Number(((nW * sumTH - sumT * sumH) / denom).toFixed(5));
+        }
+    }
+    let coherence = Number(Math.min(1.0, Math.max(0.0, 0.9086 * Math.exp(-0.5 * Math.abs(dhDt)))).toFixed(4));
+    return { entropy_bits: fullH, dh_dt: dhDt, consensus_coherence: coherence };
+}
+
         return {
             lat: la,
             lon: lo,
             name: cleanPlaceName(nearest.place) || `${la.toFixed(0)}°, ${lo.toFixed(0)}°`,
             n3y: near.length,
-            p7d: Number(p7.toFixed(3))
+            p7d: Number(p7.toFixed(3)),
+            ...computeSeismicEntropyMetricsJS(near)
         };
     });
 
@@ -3246,6 +3301,9 @@ async function loadHotspots() {
             n.style.overflow = 'hidden';
             n.style.textOverflow = 'ellipsis';
             let titleText = `${h.name} (${h.lat.toFixed(1)}°, ${h.lon.toFixed(1)}°)\n3-Year M5+ Mainshocks: ${h.n3y}\n7-Day Poisson Probability: ${(h.p7d * 100).toFixed(1)}%`;
+            if (typeof h.entropy_bits === 'number') {
+                titleText += `\nSeismic Shannon Entropy: ${h.entropy_bits.toFixed(2)} bits (dH/dt: ${h.dh_dt >= 0 ? '+' : ''}${(h.dh_dt || 0).toFixed(4)} | Coherence: ${Math.round((h.consensus_coherence || 0.9) * 100)}%)`;
+            }
             if (pre) {
                 titleText += `\n⚡ DEEP MANTLE PRECURSOR: M${pre.deep.mag.toFixed(1)} at ${Math.round(pre.deep.depth)} km depth (${pre.distKm} km distance, ${pre.ageDays}d ago). Viscoelastic shear stress transfer active!`;
                 n.style.color = '#ffaa00';

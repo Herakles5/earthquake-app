@@ -18,18 +18,13 @@ import sys
 import os
 import datetime
 
-try:
-    sys.path.append("/root/coding/AI_Desktop")
-    from aion_fastcore_bridge import fastcore as _aion_fastcore
-except Exception:
-    _aion_fastcore = None
-
 
 def compute_seismic_entropy_metrics(near_events):
     """
-    AION NEXUS Gen 1284 Seismic Entropy-Gradient Correlation:
+    Standalone Seismic Entropy-Gradient Correlation (runs on GitHub Actions / server / desktop
+    with zero external path dependencies):
     Evaluates the Shannon entropy (bits) and temporal entropy gradient (dH/dt)
-    of the mainshock sequence around a hotspot using C++20 FastCore (with Python fallback).
+    of the mainshock sequence around a hotspot.
     """
     if not near_events:
         return {"entropy_bits": 0.0, "dh_dt": 0.0, "consensus_coherence": 0.5}
@@ -51,8 +46,6 @@ def compute_seismic_entropy_metrics(near_events):
     def _shannon_bits(raw_b):
         if not raw_b:
             return 0.0
-        if _aion_fastcore is not None:
-            return round(_aion_fastcore.fast_shannon_entropy(bytes(raw_b)), 4)
         counts = {}
         for b in raw_b:
             counts[b] = counts.get(b, 0) + 1
@@ -66,15 +59,6 @@ def compute_seismic_entropy_metrics(near_events):
         if len(sub) >= 2:
             window_entropies.append(_shannon_bits(sub))
 
-    if _aion_fastcore is not None and len(window_entropies) >= 2:
-        eg = _aion_fastcore.entropy_gradient_gate(window_entropies, current_drift=0.0914)
-        return {
-            "entropy_bits": full_h,
-            "dh_dt": eg.get("dh_dt", 0.0),
-            "consensus_coherence": eg.get("topological_fitness", 0.9)
-        }
-
-    # Pure Python fallback for dH/dt
     n_w = len(window_entropies)
     if n_w >= 2:
         sum_t = sum(range(n_w))
