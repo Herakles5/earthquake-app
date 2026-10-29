@@ -237,37 +237,97 @@
         
         <div id="help-modal" class="hidden">
     <div class="help-content">
-        <h2>How to read this map</h2>
-        <button id="btn-close-help">×</button>
-        
-        <div class="help-section">
-            <h3>Live Earthquakes (Map & List)</h3>
-            <p>Shows earthquakes (M3.0+) from the last 24 hours. The dashed cyan line connects the two most recent quakes, showing the time elapsed between them.</p>
-        </div>
-        
-        <div class="help-section">
-            <h3>Short-Term / Global Predictions</h3>
-            <p>Uses the time gaps between the most recent 5 earthquakes (Short-term) or all 24h earthquakes (Global) to predict when the next event is statistically expected.</p>
-        </div>
-        
-        <div class="help-section">
-            <h3>Long-Term Stats</h3>
-            <p>Analyzes historical data from the last 7 and 30 days to establish average intervals between events.</p>
-            <ul>
-                <li><span class="help-highlight">HEAVY (M5.0+ / M7.0+):</span> Significant seismic events.</li>
-                <li><span class="help-highlight">DEEP (&gt;150km):</span> Deep mantle earthquakes, which can act as precursors to larger shallow events. Indicated by a low-pitched sound and a [DEEP] tag.</li>
-                <li><span class="help-highlight">OVERDUE:</span> Indicates that the statistical average time interval has passed without a new earthquake occurring.</li>
-            </ul>
-        </div>
+        <h2>🌍 System Manual &amp; Guide — How to Read the Map &amp; Forecasting Engine</h2>
+        <button id="btn-close-help" title="Close Guide">×</button>
+        <p class="help-intro">
+            Welcome to the <strong>Live Seismo-Tectonic Intelligence &amp; Forecasting System</strong>. Every metric, countdown, and vector on this dashboard is computed in real time from live <strong>USGS</strong> seismic feeds, <strong>NOAA</strong> geomagnetic telemetry, <strong>Smithsonian / NOAA</strong> volcano &amp; tsunami bulletins, and a <strong>20-year historical earthquake archive</strong>. Click any <span class="help-highlight">underlined metric</span>, <span class="help-highlight">hotspot</span>, or <span class="help-highlight">predicted region</span> on the dashboard to inspect its live mathematical breakdown or fly directly to its coordinates.
+        </p>
 
-        <div class="help-section">
-            <h3>Volcano Activity</h3>
-            <p>Provides a live feed and status updates on ongoing activity and ash emissions from major active volcanoes worldwide.</p>
-        </div>
+        <div class="help-grid">
+            <div class="help-section">
+                <h3>🗺️ 1. Interactive Map Layers &amp; Visual Symbols</h3>
+                <ul>
+                    <li><span class="help-highlight" style="color:#ffcc00;">Earthquake Epicenters (Pulsing Circles):</span> Scaled by magnitude and color-coded: <strong>Yellow</strong> (M3.0–3.9), <strong>Orange</strong> (M4.0–4.9), and <strong>Red</strong> (M5.0+). Quakes of <strong>M4.5+</strong> display a white target crosshair. Click any circle to open its full energy (TNT), depth, and shock-radius report.</li>
+                    <li><span class="help-highlight" style="color:#ff69b4;">Tectonic Plate Boundaries (Pink Fault Lines):</span> High-resolution global fault geometry (<code style="color:#ff88cc;">plates.js</code>) used by the kinematic engine to lock predicted epicenters onto real fault lines.</li>
+                    <li><span class="help-highlight" style="color:#00ffff;">Projected Tectonic Targets (Cyan &amp; Magenta Crosshairs):</span> Pulsing target reticles with dashed forward vectors showing the <strong>predicted next fault rupture coordinates</strong> — <strong>Cyan</strong> for the next <code>M2.5+/M3.0+</code> target and <strong>Magenta</strong> for the next <code>M4.0+</code> target.</li>
+                    <li><span class="help-highlight" style="color:#ffaa00;">Tectonic Stress Streamlines (Animated Orange Arcs):</span> Directional curved arrows connecting earthquakes where viscoelastic and pore-fluid stress is actively migrating along plate boundaries (100–2,200 km range, 4–300 km/h propagation speed).</li>
+                    <li><span class="help-highlight" style="color:#00ffcc;">Sonar Chain &amp; Ripples (Cyan Trails):</span> Connects consecutive earthquakes occurring within 15 minutes of each other, highlighting rapid global or local chain reactions.</li>
+                    <li><span class="help-highlight" style="color:#ff3333;">Shock Radius &amp; Trigger Lines (Red Circles &amp; Dashed Red):</span> Around every M5.0+ earthquake (last 24h), a pulsing red circle marks its empirical crustal stress zone (<code style="color:#ff8888;">R = 10^(0.43·M) km</code>). If a new quake is triggered inside this radius within 48h, a dashed red trigger vector links them.</li>
+                    <li><span class="help-highlight" style="color:#ffd700;">Dynamic 300 km Hotspot Zones (Dashed Gold/Orange Rings):</span> Marks the Top-5 global M5+ hazard regions. Zones turn <strong>bright orange</strong> when actively charged by a deep mantle precursor (<code style="color:#ffaa00;">⚡</code>).</li>
+                    <li><span class="help-highlight" style="color:#0096ff;">Tsunami Shockwaves (Inward-Flowing Blue Rings):</span> Automatically rendered around any earthquake flagged with an official USGS tsunami warning (<code style="color:#66ccff;">tsunami = 1</code>).</li>
+                </ul>
+            </div>
 
-        <div class="help-section">
-            <h3>Tsunami Alerts</h3>
-            <p>Displays active warnings, threat levels, and monitoring status updates for major ocean basins and regions.</p>
+            <div class="help-section">
+                <h3>🧭 2. Seismo-Tectonic Kinematic Trajectory &amp; Region Prediction</h3>
+                <p>Instead of computing a static average of past earthquakes, the <strong>Region</strong> fields (<code style="color:#ff33ff;">ALL M3.0+</code> and <code style="color:#ff8800;">MODERATE M4.0+</code>) calculate the chronological rupture sequence (<code>t₁ → t₂ → … → tₙ</code>) inside the dominant active cluster:</p>
+                <ul>
+                    <li><span class="help-highlight">Momentum-Weighted Migration Vector:</span> Computes the directional step vector (<code>ΔLat, ΔLon, ΔDepth</code>) across consecutive tremors, giving higher momentum weight to the newest ruptures in the chain.</li>
+                    <li><span class="help-highlight">Updip Slab Amplification:</span> When hypocenters migrate upward from the deep subduction slab toward the brittle upper crust (<code>ΔDepth &lt; -5 km</code>), forward projection is amplified by <strong>1.25×</strong>.</li>
+                    <li><span class="help-highlight">Orthogonal Fault-Boundary Locking:</span> The projected target coordinate is snapped onto the nearest real tectonic plate boundary segment (<code style="color:#00ffcc;">[Plate-Locked]</code>) and displays the migration direction and shift distance (e.g., <code>Region ➔ NE 42km (6x)</code>). <strong>Click any predicted region to center the map on the projected target.</strong></li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>⏱️ 3. Smart Countdowns, Declustering &amp; P50 / P90 Windows</h3>
+                <p>Raw earthquake catalogs are heavily distorted by local aftershock swarms. To predict genuine global mainshock rhythms, the forecasting engine applies:</p>
+                <ul>
+                    <li><span class="help-highlight">Gardner-Knopoff &amp; Omori-Utsu Declustering:</span> Automatically filters out dependent aftershocks in space and time before computing recurrence intervals.</li>
+                    <li><span class="help-highlight">Hybrid Interval Estimator (60% Median + 40% EMA):</span> Combines statistical robustness (Median) with sensitivity to current tectonic acceleration (Exponential Moving Average).</li>
+                    <li><span class="help-highlight">P50 &amp; P90 Arrival Windows:</span> Shows the exact time window by which there is a <strong>50% probability (P50)</strong> and <strong>90% probability (P90)</strong> that the next event will have occurred.</li>
+                    <li><span class="help-highlight">OVERDUE &amp; BPT / Weibull Strain Analysis:</span> When the expected interval passes without a quake, the timer turns into an <code style="color:#ff5555;">OVERDUE</code> counter and switches to <strong>Brownian Passage Time (BPT) / Weibull renewal physics</strong>, computing the live <em>Asperity Strain Factor</em> and <em>Conditional 1-Hour Rupture Hazard</em>.</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>⚖️ 4. Hemispheres, Gutenberg-Richter b-Value &amp; Tectonic Flow</h3>
+                <ul>
+                    <li><span class="help-highlight">North vs South / East vs West (24H):</span> Tracks the real-time global distribution of seismic energy across hemispheres.</li>
+                    <li><span class="help-highlight">Stress b-Value (Aki-Utsu Maximum Likelihood):</span> The primary geophysical indicator of crustal stress state (<code style="color:#00ffcc;">log₁₀ N = a - b·M</code>):
+                        <br>• <strong>b ≥ 1.15 (Relaxed):</strong> Frequent small tremors releasing strain safely.
+                        <br>• <strong>0.90 – 1.14 (Normal):</strong> Standard tectonic equilibrium.
+                        <br>• <strong>0.75 – 0.89 (Elevated Stress):</strong> Faults are locking; microseismicity is suppressed.
+                        <br>• <strong>b &lt; 0.75 (HIGH STRESS / Locked):</strong> Severe asperity locking — classic precursor state prior to major ruptures.
+                    </li>
+                    <li><span class="help-highlight">Tectonic Flow:</span> Displays the number of active directional stress cascades detected in the last 48h and their dominant compass bearing.</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>🔥 5. Live Dynamic Hotspots (M5+ · 7 Days), Deep Precursors &amp; Entropy</h3>
+                <p>The <strong>HOTSPOTS · M5+ · 7 DAYS</strong> card continuously ranks the Top-5 global high-hazard zones (300 km radius, ≥600 km separation) directly from the live USGS M5+ catalog:</p>
+                <ul>
+                    <li><span class="help-highlight">Live Recency-Weighted Gaussian KDE:</span> Combines 3 years of declustered M5+ mainshocks with an exponential recency boost (<code style="color:#ffcc00;">1 + 1.25·e^(-age/45d)</code>) so newly emerging seismic crises immediately enter the Top-5 in real time.</li>
+                    <li><span class="help-highlight">7-Day Poisson Probability (%):</span> The statistical probability of at least one <strong>M5.0+ mainshock</strong> striking within 300 km of the hotspot during the next 7 days.</li>
+                    <li><span class="help-highlight">⚡ Deep Mantle Precursor Coupling (&gt;150 km):</span> Deep subduction earthquakes transfer viscoelastic shear stress upward along the slab into the upper crust. When a deep event (&gt;150 km) occurs within 850 km of a hotspot in the last 14 days, the hotspot is marked with <code style="color:#ffaa00;">⚡</code> and its 7-day probability is dynamically boosted.</li>
+                    <li><span class="help-highlight">Seismic Shannon Entropy (H &amp; dH/dt):</span> Hovering over any hotspot reveals its information-theoretic <em>Shannon Entropy (bits)</em>, <em>Entropy Gradient (dH/dt)</em>, and <em>Phase Coherence (%)</em> — measuring whether the fault system is in random background noise or converging toward a synchronized rupture.</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>🌌 6. Space Weather, Schumann Resonance &amp; Solid Earth Tides</h3>
+                <ul>
+                    <li><span class="help-highlight">Kp-Index &amp; Gaia Charge Multiplier (NOAA):</span> Live planetary geomagnetic activity index (0–9). Solar storms and ionospheric disturbances increase the <strong>Gaia Charge Multiplier</strong> (1.00× to 1.35×), accelerating expected seismic intervals via magnetotelluric and piezoelectric fault coupling.</li>
+                    <li><span class="help-highlight">Tidal / Moon Phase (Solid Earth Tides):</span> Gravitational pull from the Moon and Sun deforms the solid Earth crust by <strong>40–50 cm twice daily</strong>. During <strong>Syzygy (New Moon🌑 &amp; Full Moon🌕)</strong>, tidal shear stress peaks (<code style="color:#00e5ff;">100% MAX</code>), modulating Coulomb failure stress on critically loaded faults.</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>🧬 7. Gaia's Multi-Class Rhythm Matrix (M3+ … M9+) &amp; 144H Graph</h3>
+                <ul>
+                    <li><span class="help-highlight">Gaia Rhythm Matrix:</span> Tracks every magnitude class from <strong>M3+ up to M9+</strong> using up to 20 years of historical USGS archives. Each row displays the event count, effective expected interval, time elapsed since the last event, live countdown/overdue timer, and a color-coded <strong>Poisson probability progress bar</strong>. Click the matrix card to inspect the full 20-year breakdown.</li>
+                    <li><span class="help-highlight">Gaia's Seismic Activity (144H Chart):</span> Visualizes the 6-day global seismic wave rhythm in 6-hour bins, allowing you to spot multi-day "contraction" build-ups and quiet seismic gaps before large releases.</li>
+                </ul>
+            </div>
+
+            <div class="help-section">
+                <h3>🎛️ 8. Controls, Search, Live Ticker &amp; Audio Sonar</h3>
+                <ul>
+                    <li><span class="help-highlight">🔍 Search Panel (+ Button):</span> Click the orange <code>+</code> button in the header to search the 30-day &amp; 20-year archives by region name (e.g., <em>Japan, Chile, California</em>) and filter by magnitude tabs (<code>M3+</code> through <code>M9+</code>).</li>
+                    <li><span class="help-highlight">🔊 Audio Sonar (Sound: ON/OFF):</span> Synthesizes real-time WebAudio seismic tones when new earthquakes arrive or when clicking events. Deeper quakes produce lower resonant sub-bass frequencies; larger magnitudes produce longer, richer harmonics.</li>
+                    <li><span class="help-highlight">🌋 Top Live Alert Ticker:</span> Continuously streams official <strong>NOAA Tsunami Bulletins</strong> and <strong>Smithsonian / USGS Global Volcanic Activity Reports</strong> at the top of the screen.</li>
+                </ul>
+            </div>
         </div>
     </div>
 </div>
