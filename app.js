@@ -237,7 +237,72 @@ function snapToNearestPlateBoundary(lat, lon, maxSearchKm = 350) {
             strikeDeg: Math.round(bestStrike)
         };
     }
-    return { lat: lat, lon: lon, distKm: Math.round(minDist), snapped: false, strikeDeg: 0 };
+    return { lat: lat, lon: lon, distKm: Math.round(minDist), snapped: false, strikeDeg: Math.round(bestStrike) };
+}
+
+function classifyFocalRegime(eq) {
+    let snap = snapToNearestPlateBoundary(eq.lat, eq.lon, 500);
+    let strike = snap.strikeDeg || 0;
+    let depth = eq.depth || 10.0;
+    let pLower = (eq.place || '').toLowerCase();
+
+    // Check if local environment has intermediate/deep subduction events (>70 km) within 450 km
+    let pool = (globalMonthEqs && globalMonthEqs.length > 0) ? globalMonthEqs : earthquakes;
+    let hasSubductionSlab = depth >= 55.0;
+    if (!hasSubductionSlab && pool && pool.length > 0) {
+        for (let i = 0; i < Math.min(pool.length, 400); i++) {
+            let o = pool[i];
+            if (o && o.depth >= 85.0 && haversineDistance(eq.lat, eq.lon, o.lat, o.lon) <= 450.0) {
+                hasSubductionSlab = true;
+                break;
+            }
+        }
+    }
+
+    let isRiftName = pLower.includes('ridge') || pLower.includes('rise') || pLower.includes('rift') || pLower.includes('reykjanes') || pLower.includes('iceland');
+    let isSubductionName = pLower.includes('trench') || pLower.includes('kuril') || pLower.includes('mariana') || pLower.includes('tonga') || pLower.includes('kermadec') || pLower.includes('fiji') || pLower.includes('japan') || pLower.includes('bonin') || pLower.includes('vanuatu') || pLower.includes('solomon') || pLower.includes('chile') || pLower.includes('peru') || pLower.includes('alaska') || pLower.includes('aleutian') || pLower.includes('indonesia') || pLower.includes('philippine') || pLower.includes('kamchatka') || pLower.includes('taiwan');
+
+    if (depth >= 120.0) {
+        return {
+            type: 'slab',
+            label: 'Wadati-Benioff Intraslab (Downdip)',
+            shortLabel: 'Slab Downdip',
+            strike: strike,
+            dip: 62,
+            rake: -85,
+            updipBoost: 1.38
+        };
+    } else if (isRiftName && depth <= 25.0) {
+        return {
+            type: 'normal',
+            label: 'Extensional Rift / Normal Fault',
+            shortLabel: 'Normal / Rift',
+            strike: strike,
+            dip: 55,
+            rake: -90,
+            updipBoost: 1.05
+        };
+    } else if (hasSubductionSlab || isSubductionName || (depth >= 28.0 && depth < 120.0)) {
+        return {
+            type: 'thrust',
+            label: 'Subduction Megathrust (Reverse)',
+            shortLabel: 'Megathrust',
+            strike: strike,
+            dip: 24,
+            rake: 90,
+            updipBoost: 1.28
+        };
+    } else {
+        return {
+            type: 'strikeslip',
+            label: 'Transform Strike-Slip (Shear)',
+            shortLabel: 'Strike-Slip',
+            strike: strike,
+            dip: 84,
+            rake: 178,
+            updipBoost: 1.15
+        };
+    }
 }
 
 function resolveNearestPlaceName(lat, lon, fallbackPlace) {
@@ -358,16 +423,17 @@ function getSpatialClusterRegion(eqList, limit, maxRadiusKm = 450) {
         }
     }
 
+    let regimeInfo = classifyFocalRegime(latestEq);
     let projLat = latestEq.lat;
     let projLon = latestEq.lon;
     if (stepWeightSum > 0) {
         let meanStepLat = dLatTotal / stepWeightSum;
         let meanStepLon = dLonTotal / stepWeightSum;
         let meanStepDepth = dDepthTotal / stepWeightSum;
-        // Updip amplification: if hypocenters are migrating upward (dDepth < 0), stress focuses strongly ahead
-        let updipBoost = meanStepDepth < -5.0 ? 1.25 : 1.0;
-        projLat = latestEq.lat + meanStepLat * 0.85 * updipBoost;
-        projLon = latestEq.lon + meanStepLon * 0.85 * updipBoost;
+        // Updip & focal-regime amplification: subduction slabs and updip sequences focus stress strongly ahead
+        let updipBoost = (meanStepDepth < -5.0 ? 1.25 : 1.0) * (regimeInfo.updipBoost || 1.0);
+        projLat = latestEq.lat + meanStepLat * 0.78 * updipBoost;
+        projLon = latestEq.lon + meanStepLon * 0.78 * updipBoost;
     } else {
         projLat = 0.65 * latestEq.lat + 0.35 * centLat;
         projLon = 0.65 * latestEq.lon + 0.35 * centLon;

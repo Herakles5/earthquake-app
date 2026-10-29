@@ -325,6 +325,7 @@
                 <ul>
                     <li><span class="help-highlight">🔍 Search Panel (+ Button):</span> Click the orange <code>+</code> button in the header to search the 30-day &amp; 20-year archives by region name (e.g., <em>Japan, Chile, California</em>) and filter by magnitude tabs (<code>M3+</code> through <code>M9+</code>).</li>
                     <li><span class="help-highlight">🔊 Audio Sonar (Sound: ON/OFF):</span> Synthesizes real-time WebAudio seismic tones when new earthquakes arrive or when clicking events. Deeper quakes produce lower resonant sub-bass frequencies; larger magnitudes produce longer, richer harmonics.</li>
+                    <li><span class="help-highlight">🎯 Focal Mechanism Tensor (Beachball) &amp; BHZ Seismogram:</span> Clicking any earthquake opens the <strong>Focal Tensor &amp; Fault Regime Inspector</strong> (classifying <em>Subduction Megathrust</em>, <em>Transform Strike-Slip</em>, <em>Wadati-Benioff Slab</em>, or <em>Extensional Rift</em> rotated to the real fault strike) alongside a live animated <strong>Broadband Vertical (BHZ) P-Wave &amp; S-Wave Seismogram</strong> showing exact <code>P</code> and <code>S</code> phase arrivals, <code>Δt(S-P)</code>, and Brune corner frequency.</li>
                     <li><span class="help-highlight">🌋 Top Live Alert Ticker:</span> Continuously streams official <strong>NOAA Tsunami Bulletins</strong> and <strong>Smithsonian / USGS Global Volcanic Activity Reports</strong> at the top of the screen.</li>
                 </ul>
             </div>
@@ -337,6 +338,7 @@
     <div id="eq-popup" class="eq-popup hidden">
         <div class="eq-popup-header">
             <span id="eq-popup-mag" class="eq-popup-mag"></span>
+            <canvas id="eq-focal-canvas" width="44" height="44" title="Lower-Hemisphere Stereographic Focal Mechanism (Beachball) oriented to local plate boundary strike"></canvas>
             <button id="eq-popup-close" class="eq-popup-close">×</button>
         </div>
         <div class="eq-popup-body">
@@ -344,12 +346,21 @@
             <div class="eq-popup-stats">
                 <div class="eq-popup-row"><span class="eq-popup-label">📍 Coordinates:</span><span id="eq-popup-coords"></span></div>
                 <div class="eq-popup-row"><span class="eq-popup-label">📏 Depth:</span><span id="eq-popup-depth"></span></div>
+                <div class="eq-popup-row"><span class="eq-popup-label">🧭 Fault Regime:</span><span id="eq-popup-regime" style="color:#00ffcc; font-weight:bold;"></span></div>
+                <div class="eq-popup-row"><span class="eq-popup-label">📐 Strike / Dip / Rake:</span><span id="eq-popup-tensor" style="color:#ffaa00; font-family:monospace;"></span></div>
                 <div class="eq-popup-row"><span class="eq-popup-label">🕐 Time (UTC):</span><span id="eq-popup-time"></span></div>
                 <div class="eq-popup-row"><span class="eq-popup-label">🕐 Time (Local):</span><span id="eq-popup-time-local"></span></div>
                 <div class="eq-popup-row"><span class="eq-popup-label">⏱️ Age:</span><span id="eq-popup-age"></span></div>
                 <div class="eq-popup-row"><span class="eq-popup-label">🏷️ Category:</span><span id="eq-popup-category"></span></div>
                 <div class="eq-popup-row"><span class="eq-popup-label">📊 Energy (TNT):</span><span id="eq-popup-energy"></span></div>
                 <div class="eq-popup-row"><span class="eq-popup-label">📡 Shock Radius:</span><span id="eq-popup-shock" style="color:#ff3333; font-weight:bold;"></span></div>
+            </div>
+            <div class="eq-seismogram-box">
+                <div class="eq-seismogram-hdr">
+                    <span>📈 LIVE BHZ SEISMOGRAM (P &amp; S WAVEFORM)</span>
+                    <span id="eq-seismogram-meta" style="color:#00ffcc;">Δt(S-P): ...</span>
+                </div>
+                <canvas id="eq-seismogram-canvas" width="296" height="64"></canvas>
             </div>
         </div>
         <div class="eq-popup-arrow"></div>

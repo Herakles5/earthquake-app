@@ -1059,6 +1059,51 @@ h3 {
     color: #ff3333;
 }
 
+#eq-focal-canvas {
+    position: relative !important;
+    width: 44px !important;
+    height: 44px !important;
+    top: auto !important;
+    left: auto !important;
+    z-index: 2 !important;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(25,25,40,0.95) 0%, rgba(10,10,18,0.95) 100%);
+    box-shadow: 0 0 10px rgba(0, 255, 204, 0.25);
+    flex-shrink: 0;
+}
+
+.eq-seismogram-box {
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: rgba(5, 8, 15, 0.9);
+    border: 1px solid rgba(0, 255, 204, 0.35);
+    border-radius: 7px;
+    box-shadow: inset 0 0 12px rgba(0, 0, 0, 0.85);
+}
+
+.eq-seismogram-hdr {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: #99bbcc;
+    margin-bottom: 4px;
+    font-family: monospace;
+}
+
+#eq-seismogram-canvas {
+    position: relative !important;
+    width: 100% !important;
+    height: 64px !important;
+    top: auto !important;
+    left: auto !important;
+    z-index: 2 !important;
+    border-radius: 4px;
+    background: #04070d;
+}
+
 .eq-popup-body {
     padding: 8px 12px 10px 12px;
 }
