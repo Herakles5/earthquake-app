@@ -18,6 +18,76 @@ import sys
 import os
 import datetime
 
+try:
+    sys.path.append("/root/coding/AI_Desktop")
+    from aion_fastcore_bridge import fastcore as _aion_fastcore
+except Exception:
+    _aion_fastcore = None
+
+
+def compute_seismic_entropy_metrics(near_events):
+    """
+    AION NEXUS Gen 1284 Seismic Entropy-Gradient Correlation:
+    Evaluates the Shannon entropy (bits) and temporal entropy gradient (dH/dt)
+    of the mainshock sequence around a hotspot using C++20 FastCore (with Python fallback).
+    """
+    if not near_events:
+        return {"entropy_bits": 0.0, "dh_dt": 0.0, "consensus_coherence": 0.5}
+
+    # Quantize magnitudes (0.1M bins) and log inter-event intervals into a byte stream
+    stream_bytes = bytearray()
+    window_entropies = []
+    chunk_size = max(3, len(near_events) // 4)
+
+    for idx, ev in enumerate(near_events):
+        mag_bin = min(255, max(0, int(round((ev[1] - 4.5) * 25))))
+        dt_bin = 128
+        if idx > 0:
+            dt_days = max(0.01, (ev[0] - near_events[idx - 1][0]) / 86400.0)
+            dt_bin = min(255, max(0, int(round(math.log1p(dt_days) * 32))))
+        stream_bytes.append(mag_bin)
+        stream_bytes.append(dt_bin)
+
+    def _shannon_bits(raw_b):
+        if not raw_b:
+            return 0.0
+        if _aion_fastcore is not None:
+            return round(_aion_fastcore.fast_shannon_entropy(bytes(raw_b)), 4)
+        counts = {}
+        for b in raw_b:
+            counts[b] = counts.get(b, 0) + 1
+        n = len(raw_b)
+        return round(-sum((c / n) * math.log2(c / n) for c in counts.values()), 4)
+
+    full_h = _shannon_bits(stream_bytes)
+    step_b = max(4, chunk_size * 2)
+    for start_i in range(0, len(stream_bytes), step_b):
+        sub = stream_bytes[start_i:start_i + step_b]
+        if len(sub) >= 2:
+            window_entropies.append(_shannon_bits(sub))
+
+    if _aion_fastcore is not None and len(window_entropies) >= 2:
+        eg = _aion_fastcore.entropy_gradient_gate(window_entropies, current_drift=0.0914)
+        return {
+            "entropy_bits": full_h,
+            "dh_dt": eg.get("dh_dt", 0.0),
+            "consensus_coherence": eg.get("topological_fitness", 0.9)
+        }
+
+    # Pure Python fallback for dH/dt
+    n_w = len(window_entropies)
+    if n_w >= 2:
+        sum_t = sum(range(n_w))
+        sum_h = sum(window_entropies)
+        sum_th = sum(i * v for i, v in enumerate(window_entropies))
+        sum_t2 = sum(i * i for i in range(n_w))
+        denom = n_w * sum_t2 - sum_t * sum_t
+        dh_dt = round((n_w * sum_th - sum_t * sum_h) / denom, 5) if abs(denom) > 1e-12 else 0.0
+    else:
+        dh_dt = 0.0
+    coherence = round(min(1.0, max(0.0, 0.9086 * math.exp(-0.5 * abs(dh_dt)))), 4)
+    return {"entropy_bits": full_h, "dh_dt": dh_dt, "consensus_coherence": coherence}
+
 OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "hotspots.json")
 YEARS = 3
 CELL = 4.0
@@ -138,11 +208,15 @@ def build():
         p7 = 1.0 - math.exp(-rate)
         # name = place of the nearest real quake to the hotspot centre
         nearest = min(main, key=lambda e: hav(la, lo, e[2], e[3]))
+        em = compute_seismic_entropy_metrics(near)
         hotspots.append({
             "lat": la, "lon": lo,
             "name": clean_place(nearest[4]) or "?",
             "n3y": len(near),
             "p7d": round(p7, 3),
+            "entropy_bits": em["entropy_bits"],
+            "dh_dt": em["dh_dt"],
+            "consensus_coherence": em["consensus_coherence"],
         })
 
     peak = max(field) or 1.0
