@@ -1276,9 +1276,30 @@ h3 {
     box-shadow: 0 3px 10px rgba(0,0,0,0.5); white-space: nowrap; transition: transform 0.2s;
 }
 #dashboard-strip .station-btn:hover { transform: scale(1.04); }
-#dashboard-strip .donate-btn {
-    align-self: flex-start; background: #0070ba; color: #fff; text-decoration: none; font-size: 10px; font-weight: bold;
-    padding: 3px 9px; border-radius: 10px; border: 1px solid #005ea6; letter-spacing: 0.5px;
+#dashboard-strip .donate-btn,
+#dashboard-strip .dojo-btn {
+    align-self: flex-start;
+    background: linear-gradient(135deg, #00ffcc, #ff007f);
+    color: #050811;
+    text-decoration: none;
+    font-size: 10.5px;
+    font-weight: 800;
+    padding: 4px 11px;
+    border-radius: 12px;
+    border: 1px solid #00ffcc;
+    letter-spacing: 0.8px;
+    box-shadow: 0 0 10px rgba(0, 255, 204, 0.45);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    transition: all 0.25s ease-in-out;
+}
+#dashboard-strip .donate-btn:hover,
+#dashboard-strip .dojo-btn:hover {
+    transform: scale(1.06);
+    box-shadow: 0 0 18px rgba(255, 0, 127, 0.85);
+    color: #ffffff;
 }
 
 /* stat boxes */

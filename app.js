@@ -2803,6 +2803,167 @@ function formatAge(ms) {
     return `${secs}s ago`;
 }
 
+function renderBeachball(canvasId, regime) {
+    let cv = document.getElementById(canvasId);
+    if (!cv) return;
+    let c = cv.getContext('2d');
+    let w = cv.width, h = cv.height;
+    let r = (w / 2) - 2;
+    let cx = w / 2, cy = h / 2;
+
+    c.clearRect(0, 0, w, h);
+    c.save();
+    c.translate(cx, cy);
+    c.rotate((regime.strike || 0) * Math.PI / 180);
+
+    // Outer circle
+    c.beginPath();
+    c.arc(0, 0, r, 0, Math.PI * 2);
+    c.fillStyle = '#ffffff';
+    c.fill();
+    c.strokeStyle = '#00ffcc';
+    c.lineWidth = 1.8;
+    c.stroke();
+
+    let compColor = regime.type === 'thrust' ? '#ff3344' : (regime.type === 'slab' ? '#aa00ff' : (regime.type === 'normal' ? '#ff8800' : '#00b4d8'));
+
+    c.beginPath();
+    c.arc(0, 0, r, 0, Math.PI * 2);
+    c.clip();
+
+    if (regime.type === 'thrust' || regime.type === 'slab') {
+        // Double curved compression lobes (Center is compressed)
+        c.fillStyle = compColor;
+        c.beginPath();
+        c.moveTo(-r, 0);
+        c.bezierCurveTo(-r * 0.4, r * 0.8, r * 0.4, r * 0.8, r, 0);
+        c.bezierCurveTo(r * 0.4, -r * 0.8, -r * 0.4, -r * 0.8, -r, 0);
+        c.fill();
+    } else if (regime.type === 'normal') {
+        // Middle is dilated/white, top and bottom are compressed
+        c.fillStyle = compColor;
+        c.beginPath();
+        c.arc(0, 0, r, 0, Math.PI * 2);
+        c.fill();
+        c.fillStyle = '#ffffff';
+        c.beginPath();
+        c.moveTo(-r, 0);
+        c.bezierCurveTo(-r * 0.4, r * 0.7, r * 0.4, r * 0.7, r, 0);
+        c.bezierCurveTo(r * 0.4, -r * 0.7, -r * 0.4, -r * 0.7, -r, 0);
+        c.fill();
+    } else {
+        // Strike-slip: classic 4-quadrant petals
+        c.fillStyle = compColor;
+        c.beginPath();
+        c.moveTo(0, 0);
+        c.arc(0, 0, r, 0, Math.PI * 0.5);
+        c.fill();
+        c.beginPath();
+        c.moveTo(0, 0);
+        c.arc(0, 0, r, Math.PI, Math.PI * 1.5);
+        c.fill();
+    }
+
+    c.restore();
+
+    // Border ring
+    c.beginPath();
+    c.arc(cx, cy, r, 0, Math.PI * 2);
+    c.strokeStyle = 'rgba(0, 255, 204, 0.6)';
+    c.lineWidth = 1.5;
+    c.stroke();
+}
+
+function renderSeismogram(canvasId, eq) {
+    let cv = document.getElementById(canvasId);
+    if (!cv) return;
+    let c = cv.getContext('2d');
+    let w = cv.width, h = cv.height;
+
+    // Estimate epicentral distance based on depth & magnitude (~150 to 350 km nearest regional broadband)
+    let distKm = Math.max(120, Math.min(480, Math.round(160 + (eq.depth || 10) * 1.8)));
+    let vp = 6.2; // P wave velocity km/s
+    let vs = 3.55; // S wave velocity km/s
+    let tP = distKm / vp;
+    let tS = distKm / vs;
+    let dt = (tS - tP).toFixed(1);
+
+    let metaEl = document.getElementById('eq-seismogram-meta');
+    if (metaEl) {
+        metaEl.textContent = `Δ=${distKm}km | Δt(S-P): ${dt}s | fc=${(Math.max(0.4, 4.5 - (eq.mag || 4) * 0.6)).toFixed(1)}Hz`;
+    }
+
+    c.clearRect(0, 0, w, h);
+    c.fillStyle = '#04070d';
+    c.fillRect(0, 0, w, h);
+
+    // Subtle grid lines
+    c.strokeStyle = 'rgba(0, 255, 204, 0.12)';
+    c.lineWidth = 1;
+    for (let x = 0; x < w; x += 37) {
+        c.beginPath();
+        c.moveTo(x, 0);
+        c.lineTo(x, h);
+        c.stroke();
+    }
+    c.beginPath();
+    c.moveTo(0, h / 2);
+    c.lineTo(w, h / 2);
+    c.stroke();
+
+    let pX = Math.round(w * 0.22);
+    let sX = Math.round(w * 0.58);
+    let midY = h / 2;
+
+    // Draw waveform trace
+    c.beginPath();
+    c.strokeStyle = '#00ffcc';
+    c.lineWidth = 1.4;
+
+    for (let x = 0; x < w; x++) {
+        let noise = (Math.sin(x * 0.4) + Math.cos(x * 0.7)) * 1.2;
+        let pWave = 0;
+        let sWave = 0;
+
+        if (x >= pX) {
+            let dxP = x - pX;
+            let decayP = Math.exp(-dxP * 0.04);
+            pWave = Math.sin(dxP * 0.45) * Math.min(h * 0.28, (eq.mag || 4) * 2.8) * decayP;
+        }
+
+        if (x >= sX) {
+            let dxS = x - sX;
+            let decayS = Math.exp(-dxS * 0.025);
+            sWave = Math.sin(dxS * 0.28) * Math.min(h * 0.44, (eq.mag || 4) * 5.2) * decayS;
+        }
+
+        let y = midY + noise + pWave + sWave;
+        if (x === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
+    }
+    c.stroke();
+
+    // Phase arrival markers (P & S)
+    c.font = 'bold 9px monospace';
+    c.fillStyle = '#ffd166';
+    c.fillText('P-ARRIVAL', pX - 8, 11);
+    c.strokeStyle = 'rgba(255, 209, 102, 0.7)';
+    c.setLineDash([2, 2]);
+    c.beginPath();
+    c.moveTo(pX, 13);
+    c.lineTo(pX, h);
+    c.stroke();
+
+    c.fillStyle = '#ff0055';
+    c.fillText('S-ARRIVAL', sX - 8, 11);
+    c.strokeStyle = 'rgba(255, 0, 85, 0.7)';
+    c.beginPath();
+    c.moveTo(sX, 13);
+    c.lineTo(sX, h);
+    c.stroke();
+    c.setLineDash([]);
+}
+
 function showEqPopup(eq, screenX, screenY) {
     selectedEq = eq;
     
@@ -2847,10 +3008,20 @@ function showEqPopup(eq, screenX, screenY) {
         shockRadiusText = r > 20000 ? "GLOBAL" : `~${Math.round(r).toLocaleString()} km`;
     }
     document.getElementById('eq-popup-shock').textContent = shockRadiusText;
+
+    // Focal Mechanism Tensor & Seismogram
+    let regimeInfo = classifyFocalRegime(eq);
+    let regimeEl = document.getElementById('eq-popup-regime');
+    if (regimeEl) regimeEl.textContent = regimeInfo.label;
+    let tensorEl = document.getElementById('eq-popup-tensor');
+    if (tensorEl) tensorEl.textContent = `S:${regimeInfo.strike}° D:${regimeInfo.dip}° R:${regimeInfo.rake > 0 ? '+' : ''}${regimeInfo.rake}°`;
+
+    renderBeachball('eq-focal-canvas', regimeInfo);
+    renderSeismogram('eq-seismogram-canvas', eq);
     
     // Position popup above the clicked point, keep within viewport
     let popupW = 310;
-    let popupH = 260;
+    let popupH = 380;
     let px = Math.max(popupW / 2 + 5, Math.min(screenX, window.innerWidth - popupW / 2 - 5));
     let py = screenY;
     

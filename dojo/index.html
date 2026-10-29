@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AION NEXUS Dojo & Creative Lab</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="cyber-backdrop"></div>
+    <div id="ambient-glow"></div>
+
+    <!-- MAIN HEADER -->
+    <header id="main-header">
+        <div class="header-left">
+            <div class="logo-mark">▲</div>
+            <div class="logo-text">
+                <h1>AION <span>NEXUS DOJO</span></h1>
+                <div class="sub-status"><span class="live-dot"></span> CYBER BOXING, QUANTUM ARCADE & AUDIO SUITE</div>
+            </div>
+        </div>
+        <nav id="nav-dock">
+            <button class="nav-tab active" data-tab="tetris">
+                <span class="tab-icon">🕹️</span>
+                <span class="tab-label">Quantum Tetris</span>
+            </button>
+            <button class="nav-tab" data-tab="ambient">
+                <span class="tab-icon">🎧</span>
+                <span class="tab-label">Ambient Chillout</span>
+            </button>
+            <button class="nav-tab" data-tab="visualizer">
+                <span class="tab-icon">🌊</span>
+                <span class="tab-label">Reactive Visualizer</span>
+            </button>
+            <button class="nav-tab" data-tab="boxing">
+                <span class="tab-icon">🥊</span>
+                <span class="tab-label">Cyber Boxing Dojo</span>
+            </button>
+        </nav>
+        <div class="header-right">
+            <button id="btn-master-mute" class="control-btn" title="Master Audio Toggle">🔊 ON</button>
+            <div id="fps-counter">60 FPS</div>
+        </div>
+    </header>
+
+    <!-- CONTENT CONTAINER -->
+    <main id="app-container">
+
+        <!-- ================= TAB 1: QUANTUM TETRIS ================= -->
+        <section id="tab-tetris" class="tab-panel active">
+            <div class="tetris-wrapper">
+                <!-- Left Sidebar: Hold & Stats -->
+                <div class="tetris-side-col">
+                    <div class="cyber-card hold-card">
+                        <h3>HOLD</h3>
+                        <canvas id="tetris-hold-canvas" width="80" height="65"></canvas>
+                        <div class="card-hint">[C] / [Shift]</div>
+                    </div>
+                    <div class="cyber-card stat-card">
+                        <div class="stat-item">
+                            <span class="stat-title">SCORE</span>
+                            <span id="tetris-score" class="stat-num neon-green">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-title">LINES</span>
+                            <span id="tetris-lines" class="stat-num neon-cyan">0</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-title">LEVEL</span>
+                            <span id="tetris-level" class="stat-num neon-gold">1</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-title">TEMPO</span>
+                            <span id="tetris-speed" class="stat-num neon-magenta">1.0x</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-title">BEST</span>
+                            <span id="tetris-highscore" class="stat-num neon-cyan">0</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Permanent Controls Actions -->
+                    <button id="btn-tetris-main-start" class="cyber-btn primary-glow w-100">▶ START SPIEL (SPACE)</button>
+                    <button id="btn-tetris-main-pause" class="cyber-btn outline w-100">⏸ PAUSE (P)</button>
+                </div>
+
+                <!-- Center: Matrix Canvas (Compact 180x360 - 30% reduced) -->
+                <div class="tetris-board-container compact">
+                    <canvas id="tetris-canvas" width="180" height="360"></canvas>
+                    <div id="tetris-overlay" class="overlay-modal">
+                        <h2 id="tetris-overlay-title">QUANTUM TETRIS</h2>
+                        <p id="tetris-overlay-msg">Bereit für die Matrix? Klicke auf Start oder drücke LEERTASTE / ENTER!</p>
+                        <button id="btn-tetris-start" class="cyber-btn primary">▶ START GAME</button>
+                    </div>
+                </div>
+
+                <!-- Right Sidebar: Next & Controls -->
+                <div class="tetris-side-col">
+                    <div class="cyber-card next-card">
+                        <h3>NEXT</h3>
+                        <canvas id="tetris-next-canvas" width="80" height="150"></canvas>
+                    </div>
+                    <div class="cyber-card controls-card">
+                        <h3>TASTATUR</h3>
+                        <ul class="key-list">
+                            <li><span class="key-badge">◀ ▶ / A D</span> Bewegen</li>
+                            <li><span class="key-badge">▲ / W</span> Drehen</li>
+                            <li><span class="key-badge">▼ / S</span> Soft Drop</li>
+                            <li><span class="key-badge">Space</span> Hard Drop</li>
+                            <li><span class="key-badge">C / Shift</span> Hold Piece</li>
+                            <li><span class="key-badge">P</span> Pause</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Mobile Touch Controls -->
+            <div id="tetris-touch-bar">
+                <button class="touch-btn" id="btn-t-hold">HOLD</button>
+                <button class="touch-btn" id="btn-t-left">◀</button>
+                <button class="touch-btn" id="btn-t-rotate">⟳</button>
+                <button class="touch-btn" id="btn-t-right">▶</button>
+                <button class="touch-btn" id="btn-t-down">▼</button>
+                <button class="touch-btn accent" id="btn-t-drop">⚡ DROP</button>
+            </div>
+        </section>
+
+
+        <!-- ================= TAB 2: AMBIENT CHILLOUT ================= -->
+        <section id="tab-ambient" class="tab-panel">
+            <div class="ambient-wrapper">
+                <div class="ambient-intro-card">
+                    <div class="ambient-title-row">
+                        <div>
+                            <h2>AION AMBIENT SANCTUARY</h2>
+                            <p class="subtitle">Echtzeit generierte prozedurale Klangsphären & Theta-Wellen (Reine Synthese ohne Loops)</p>
+                        </div>
+                        <div class="ambient-global-actions">
+                            <button id="btn-ambient-toggle" class="cyber-btn primary-glow">▶ START SANCTUARY</button>
+                            <button id="btn-ambient-autodj" class="cyber-btn dj-btn">🎛️ AUTO-DJ: AUS</button>
+                            <button id="btn-ambient-random" class="cyber-btn outline">🎲 RANDOM MOOD</button>
+                        </div>
+                    </div>
+
+                    <!-- Auto-DJ Status Banner -->
+                    <div id="autodj-banner" class="autodj-banner hidden">
+                        <span class="dj-icon">🎧</span>
+                        <span id="autodj-status-text">DJ AION: Analysiert Klangwellen und mischt Harmonien...</span>
+                    </div>
+
+                    <!-- Preset Selector -->
+                    <div class="preset-pills">
+                        <span class="preset-label">STIMMUNGEN:</span>
+                        <button class="preset-pill active" data-preset="cosmic_void">🌌 Deep Cosmic Void</button>
+                        <button class="preset-pill" data-preset="theta_meditation">🧘 432 Hz Theta Heal</button>
+                        <button class="preset-pill" data-preset="stellar_rain">🌧️ Stellar Rain & Wind</button>
+                        <button class="preset-pill" data-preset="cyber_aurora">✨ Cyber Aurora Pad</button>
+                        <button class="preset-pill" data-preset="zen_temple">⛩️ Zen Bell Sanctuary</button>
+                    </div>
+                </div>
+
+                <!-- Sliders Grid -->
+                <div class="channel-grid">
+                    <!-- Layer 1: Cosmic Drone -->
+                    <div class="channel-card">
+                        <div class="channel-header">
+                            <span class="ch-badge">SUB</span>
+                            <h4>Cosmic Sub-Bass Drone</h4>
+                            <span class="ch-val" id="val-drone">65%</span>
+                        </div>
+                        <p class="ch-desc">Warme, schwebende Tiefbass-Resonanz (45–65 Hz)</p>
+                        <input type="range" id="slider-drone" min="0" max="100" value="65" class="ch-slider">
+                        <div class="ch-tags"><span>warm</span><span>grounding</span></div>
+                    </div>
+
+                    <!-- Layer 2: Binaural 432Hz Theta -->
+                    <div class="channel-card highlight-purple">
+                        <div class="channel-header">
+                            <span class="ch-badge purple">THETA</span>
+                            <h4>Binaural Waves (432 Hz / 6 Hz)</h4>
+                            <span class="ch-val" id="val-binaural">50%</span>
+                        </div>
+                        <p class="ch-desc">Stereo-Phasendifferenz zur Förderung tiefer Entspannung</p>
+                        <input type="range" id="slider-binaural" min="0" max="100" value="50" class="ch-slider purple">
+                        <div class="ch-tags"><span>focus</span><span>alpha-theta</span></div>
+                    </div>
+
+                    <!-- Layer 3: Generative Chords -->
+                    <div class="channel-card">
+                        <div class="channel-header">
+                            <span class="ch-badge cyan">HARMONY</span>
+                            <h4>Ethereal Pad & Chords</h4>
+                            <span class="ch-val" id="val-chords">60%</span>
+                        </div>
+                        <p class="ch-desc">Sanft modulierte, prozedurale Lydische / Pentatonische Akkorde</p>
+                        <input type="range" id="slider-chords" min="0" max="100" value="60" class="ch-slider cyan">
+                        <div class="ch-tags"><span>generative</span><span>floating</span></div>
+                    </div>
+
+                    <!-- Layer 4: Pink Noise Rain -->
+                    <div class="channel-card">
+                        <div class="channel-header">
+                            <span class="ch-badge">NATURE</span>
+                            <h4>Stellar Rain & Pink Noise</h4>
+                            <span class="ch-val" id="val-rain">35%</span>
+                        </div>
+                        <p class="ch-desc">Gefiltertes prozedurales Rauschen für sanfte Schlaf-Atmosphäre</p>
+                        <input type="range" id="slider-rain" min="0" max="100" value="35" class="ch-slider">
+                        <div class="ch-tags"><span>calming</span><span>masking</span></div>
+                    </div>
+
+                    <!-- Layer 5: Stellar Wind -->
+                    <div class="channel-card">
+                        <div class="channel-header">
+                            <span class="ch-badge">AIR</span>
+                            <h4>Cosmic Solar Wind</h4>
+                            <span class="ch-val" id="val-wind">40%</span>
+                        </div>
+                        <p class="ch-desc">Resonanter Bandpass-Wind mit dynamischer LFO-Modulation</p>
+                        <input type="range" id="slider-wind" min="0" max="100" value="40" class="ch-slider">
+                        <div class="ch-tags"><span>deep space</span><span>breathing</span></div>
+                    </div>
+
+                    <!-- Layer 6: Zen Chimes -->
+                    <div class="channel-card">
+                        <div class="channel-header">
+                            <span class="ch-badge gold">BELLS</span>
+                            <h4>Crystalline Chimes</h4>
+                            <span class="ch-val" id="val-chimes">45%</span>
+                        </div>
+                        <p class="ch-desc">Zufällig perlende pentatonische Glocken mit langem Nachhall</p>
+                        <input type="range" id="slider-chimes" min="0" max="100" value="45" class="ch-slider gold">
+                        <div class="ch-tags"><span>sparkle</span><span>zen</span></div>
+                    </div>
+                </div>
+
+                <!-- Mini Waveform Preview -->
+                <div class="ambient-footer-card">
+                    <span class="footer-label">SANCTUARY AUDIO SPECTRUM</span>
+                    <canvas id="ambient-mini-canvas" width="600" height="40"></canvas>
+                    <button id="btn-ambient-to-visualizer" class="cyber-btn sm outline">IN GROSSEM VISUALIZER ÖFFNEN ➔</button>
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ================= TAB 3: REACTIVE VISUALIZER ================= -->
+        <section id="tab-visualizer" class="tab-panel">
+            <div class="visualizer-wrapper">
+                <!-- Floating Control Dock -->
+                <div class="vis-dock">
+                    <div class="vis-source-group">
+                        <span class="vis-label">AUDIO QUELLE:</span>
+                        <button id="btn-source-ambient" class="vis-btn active">🎵 Ambient Sanctuary</button>
+                        <button id="btn-source-mic" class="vis-btn">🎙️ Live Audio (System / Mic / Gaming)</button>
+                        <button id="btn-source-testbeat" class="vis-btn">⚡ Cyber-Beat Test-Track</button>
+                    </div>
+
+                    <div class="vis-sens-group">
+                        <span class="vis-label">EMPFINDLICHKEIT:</span>
+                        <input type="range" id="slider-vis-sens" min="10" max="100" value="35" step="5" class="vis-slider" title="Audio Sensitivity / Pre-Amp">
+                        <span id="val-vis-sens" class="sens-val">3.5x</span>
+                    </div>
+
+                    <div class="vis-mode-group">
+                        <span class="vis-label">MODUS:</span>
+                        <button class="vis-mode-btn active" data-mode="nebula">🌌 Nebula Galaxy</button>
+                        <button class="vis-mode-btn" data-mode="sphere">🧠 Neural Sphere</button>
+                        <button class="vis-mode-btn" data-mode="bars">📊 Cyberpunk EQ</button>
+                        <button class="vis-mode-btn" data-mode="lissajous">⚡ Lissajous Scope</button>
+                    </div>
+
+                    <div class="vis-action-group">
+                        <button id="btn-vis-fullscreen" class="cyber-btn sm outline" title="Toggle Fullscreen">⛶ Vollbild</button>
+                    </div>
+                </div>
+
+                <!-- Main Reactive Canvas -->
+                <div class="vis-canvas-container">
+                    <canvas id="visualizer-canvas"></canvas>
+                    <div id="vis-hud">
+                        <div class="hud-item"><span class="hud-lbl">ENERGY:</span> <span id="hud-energy">0%</span></div>
+                        <div class="hud-item"><span class="hud-lbl">BASS BEAT:</span> <span id="hud-beat" class="beat-pill">IDLE</span></div>
+                        <div class="hud-item"><span class="hud-lbl">DOMINANT FREQ:</span> <span id="hud-freq">0 Hz</span></div>
+                        <div class="hud-item"><span class="hud-lbl">SIGNAL:</span> <span id="hud-signal" style="color: #00ffcc;">OK</span></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+
+        <!-- ================= TAB 4: CYBER BOXING REFLEX DOJO ================= -->
+        <section id="tab-boxing" class="tab-panel">
+            <div class="boxing-wrapper">
+                <div class="boxing-layout">
+                    <!-- Left: Fighter Stats & Performance -->
+                    <div class="cyber-card boxing-stats-card">
+                        <h3>FIGHTER STATS</h3>
+                        <div class="box-stat">
+                            <span class="box-lbl">RUNDE</span>
+                            <span id="box-round" class="box-val neon-gold">1 / 12</span>
+                        </div>
+                        <div class="box-stat">
+                            <span class="box-lbl">MATCH-ZEIT</span>
+                            <span id="box-timer" class="box-val neon-cyan">03:00</span>
+                        </div>
+                        <div class="box-stat">
+                            <span class="box-lbl">TEMPO / DANGER</span>
+                            <span id="box-danger" class="box-val neon-magenta">LVL 1 (NORMAL)</span>
+                        </div>
+                        <div class="box-stat">
+                            <span class="box-lbl">SCORE</span>
+                            <span id="box-score" class="box-val neon-green">0</span>
+                        </div>
+                        <div class="box-stat">
+                            <span class="box-lbl">COMBO</span>
+                            <span id="box-combo" class="box-val neon-magenta">0x</span>
+                        </div>
+                        <div class="box-stat">
+                            <span class="box-lbl">REAKTION</span>
+                            <span id="box-reaction" class="box-val neon-cyan">--- ms</span>
+                        </div>
+                        <div class="box-stat">
+                            <span class="box-lbl">GENAUIGKEIT</span>
+                            <span id="box-accuracy" class="box-val">100%</span>
+                        </div>
+
+                        <button id="btn-boxing-restart-side" class="cyber-btn primary-glow w-100 mt-2">🔄 NEUER KAMPF</button>
+                        <button id="btn-boxing-hof-trigger" class="cyber-btn sm outline w-100 mt-2">🏆 BESTENLISTE</button>
+                    </div>
+
+                    <!-- Center: 3D Wireframe Boxing Ring Canvas -->
+                    <div class="boxing-ring-container">
+                        <canvas id="boxing-canvas" width="600" height="480"></canvas>
+                        
+                        <!-- Floating Action Prompt -->
+                        <div id="boxing-prompt" class="boxing-prompt-banner hidden">
+                            <span id="boxing-prompt-action">DODGE LEFT!</span>
+                            <span id="boxing-prompt-key">[ Q / ◀ ]</span>
+                        </div>
+
+                        <!-- Start / Game Over Overlay -->
+                        <div id="boxing-overlay" class="overlay-modal">
+                            <h2 id="boxing-overlay-title">CYBER BOXING REFLEX DOJO</h2>
+                            <p id="boxing-overlay-desc">12-Runden-Meisterschaft (Max 3:00 Min.)! Beide Boxer besitzen Health & Stamina. Außerhalb von Betäubung blockt Aion Schläge ab. Schlage im perfekten Konter-Moment zu!</p>
+                            
+                            <!-- Highscore Input Row (Visible on Match Finish) -->
+                            <div id="boxing-score-input-wrap" class="score-input-box hidden">
+                                <input type="text" id="boxing-name-input" placeholder="DEIN KÄMPFER-NAME" maxlength="12" class="cyber-name-input">
+                                <button id="btn-boxing-save-score" class="cyber-btn primary-glow">💾 IN BESTENLISTE SPEICHERN</button>
+                            </div>
+
+                            <div class="overlay-btn-group">
+                                <button id="btn-boxing-start" class="cyber-btn primary">▶ ENTER THE RING</button>
+                                <button id="btn-boxing-view-hof" class="cyber-btn outline">🏆 BESTENLISTE</button>
+                            </div>
+                        </div>
+
+                        <!-- Hall of Fame Modal -->
+                        <div id="boxing-hof-modal" class="overlay-modal hidden">
+                            <h2>🏆 CYBER BOXING HALL OF FAME</h2>
+                            <p>Die besten Boxer des 12-Runden-Turniers (Max 3 Min.)</p>
+                            <div class="hof-table-wrap">
+                                <table class="hof-table">
+                                    <thead>
+                                        <tr>
+                                            <th>#</th>
+                                            <th>NAME</th>
+                                            <th>RUNDEN</th>
+                                            <th>ZEIT</th>
+                                            <th>SCORE</th>
+                                            <th>STATUS</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="hof-table-body">
+                                        <!-- Injected via JavaScript -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="hof-actions">
+                                <button id="btn-close-hof" class="cyber-btn primary">SCHLIESSEN</button>
+                                <button id="btn-clear-hof" class="cyber-btn sm outline">ZURÜCKSETZEN</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Right: Key Controls Guide & Health/Stamina for BOTH -->
+                    <div class="cyber-card boxing-guide-card">
+                        <h3>STATUS & DECKUNG</h3>
+                        
+                        <!-- Aion Health & Stamina -->
+                        <div class="health-block">
+                            <div class="health-header">
+                                <span>AION HEALTH</span>
+                                <span id="aion-hp-val">100%</span>
+                            </div>
+                            <div class="health-bar-track">
+                                <div id="aion-hp-bar" class="health-fill opponent" style="width: 100%;"></div>
+                            </div>
+                        </div>
+                        <div class="health-block">
+                            <div class="health-header">
+                                <span>AION STAMINA</span>
+                                <span id="aion-stamina-val">100%</span>
+                            </div>
+                            <div class="health-bar-track">
+                                <div id="aion-stamina-bar" class="health-fill aion-stamina" style="width: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <!-- Player Health & Stamina -->
+                        <div class="health-block mt-2">
+                            <div class="health-header">
+                                <span>DEINE HEALTH</span>
+                                <span id="player-hp-val">100%</span>
+                            </div>
+                            <div class="health-bar-track">
+                                <div id="player-hp-bar" class="health-fill player-hp" style="width: 100%;"></div>
+                            </div>
+                        </div>
+                        <div class="health-block">
+                            <div class="health-header">
+                                <span>DEINE STAMINA</span>
+                                <span id="player-stamina-val">100%</span>
+                            </div>
+                            <div class="health-bar-track">
+                                <div id="player-stamina-bar" class="health-fill player" style="width: 100%;"></div>
+                            </div>
+                        </div>
+
+                        <div class="guide-box">
+                            <h4>BEFEHLE (EINZELN DRÜCKEN):</h4>
+                            <div class="guide-row"><span class="key-badge">Q / ◀</span> Ausweichen LINKS</div>
+                            <div class="guide-row"><span class="key-badge">W / ▲</span> HIGH BLOCK (Deckung)</div>
+                            <div class="guide-row"><span class="key-badge">E / ▶</span> Ausweichen RECHTS</div>
+                            <div class="guide-row"><span class="key-badge">LEER / F</span> 🥊 PUNCH / KONTER!</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- On-Screen Action Buttons for Mobile/Mouse -->
+                <div id="boxing-action-bar">
+                    <button class="box-action-btn" id="btn-box-dodge-l">◀ AUSWEICHEN L (Q)</button>
+                    <button class="box-action-btn" id="btn-box-block">🛡️ DECKUNG (W)</button>
+                    <button class="box-action-btn" id="btn-box-dodge-r">AUSWEICHEN R (E) ▶</button>
+                    <button class="box-action-btn punch-accent" id="btn-box-counter">🥊 SCHLAGEN (SPACE)</button>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Unified Toast Notifications -->
+    <div id="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="ambient.js"></script>
+    <script src="visualizer.js"></script>
+    <script src="tetris.js"></script>
+    <script src="boxing.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
