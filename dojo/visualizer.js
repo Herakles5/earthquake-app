@@ -1014,6 +1014,7 @@ class ReactiveVisualizer {
             this.activeMixer = cached.mixer;
             this.activeAction = cached.action;
             this.modelBaseY = cached.baseY;
+            this.currentBones = cached.bones;
             this.scene3D.add(this.activeModel);
             if (this.activeAction) {
                 this.activeAction.reset();
@@ -1048,6 +1049,31 @@ class ReactiveVisualizer {
             model.position.x = -center.x * scale;
             model.position.z = -center.z * scale;
 
+            // Find key skeletal bones for procedural beat groove
+            const bones = {};
+            const findBone = (patterns) => {
+                let found = null;
+                model.traverse((child) => {
+                    if (found) return;
+                    if (child.isBone || child.type === 'Bone') {
+                        const name = child.name.toLowerCase();
+                        for (const pat of patterns) {
+                            if (name.includes(pat.toLowerCase())) {
+                                found = child;
+                                return;
+                            }
+                        }
+                    }
+                });
+                return found;
+            };
+
+            bones.head = findBone(['head_034', 'mixamorig:head_06', 'mixamorig:head_00', 'head_05', 'head', 'neck']);
+            bones.spine = findBone(['spine2_04', 'spine2_064', 'spine_01_06', 'spine_01_01', 'spine2', 'spine1', 'spine', 'chest']);
+            bones.hips = findBone(['pelvis_02', 'mixamorig:hips', 'hip_0111', 'hips', 'pelvis']);
+            bones.leftArm = findBone(['upperarm_l_048', 'mixamorig:leftarm', 'l_arm_019', 'leftarm', 'arm_l', 'l_arm', 'upperarm_l']);
+            bones.rightArm = findBone(['upperarm_r_010', 'mixamorig:rightarm', 'r_arm_047', 'rightarm', 'arm_r', 'r_arm', 'upperarm_r']);
+
             // Set up shadows & tone for materials
             model.traverse((child) => {
                 if (child.isMesh) {
@@ -1073,7 +1099,8 @@ class ReactiveVisualizer {
                 scene: model,
                 mixer: mixer,
                 action: action,
-                baseY: baseY
+                baseY: baseY,
+                bones: bones
             };
 
             if (this.currentDancer === dancerKey) {
@@ -1081,6 +1108,7 @@ class ReactiveVisualizer {
                 this.activeMixer = mixer;
                 this.activeAction = action;
                 this.modelBaseY = baseY;
+                this.currentBones = bones;
                 this.scene3D.add(model);
             }
 
@@ -1101,51 +1129,137 @@ class ReactiveVisualizer {
         this.lastFrameTime3D = now;
 
         const bass = metrics.bass || 0;
+        const mid = metrics.mid || 0;
+        const high = metrics.high || 0;
         const energy = metrics.energy || 0;
 
-        // 1. Beat-Synced Dynamic Playback Speed
-        let targetSpeed = 0.95 + energy * 0.85;
+        // 1. Dynamic Tempo & BPM Tracking
         if (this.beatDetected) {
-            targetSpeed += 0.55; // Beat kick boost!
+            if (this.lastBeatTimestamp) {
+                const interval = (now - this.lastBeatTimestamp) / 1000;
+                if (interval >= 0.28 && interval <= 1.25) { // 48 - 214 BPM
+                    const instantBpm = 60 / interval;
+                    this.estimatedBpm = this.estimatedBpm 
+                        ? this.estimatedBpm * 0.70 + instantBpm * 0.30 
+                        : instantBpm;
+                }
+            }
+            this.lastBeatTimestamp = now;
+            this.beatImpact = 1.0;
+        } else {
+            this.beatImpact = (this.beatImpact || 0) * 0.88;
         }
+
+        const effectiveBpm = Math.max(75, Math.min(175, this.estimatedBpm || 124));
+        const beatFrequency = effectiveBpm / 60;
+        this.groovePhase = (this.groovePhase || 0) + delta * beatFrequency * Math.PI * 2;
+
+        // 2. Playback Speed Synchronized to Song BPM and Music Energy
+        const tempoRatio = effectiveBpm / 125.0;
+        const speedFromEnergy = 0.82 + energy * 0.45;
+        const targetSpeed = tempoRatio * speedFromEnergy;
         this.danceSpeed += (targetSpeed - this.danceSpeed) * 0.14;
 
         if (this.activeMixer) {
             this.activeMixer.update(delta * this.danceSpeed);
         }
 
-        // 2. Rhythmic Bounce & Bass Hop
-        if (this.activeModel) {
-            const bounce = (this.beatDetected ? 0.055 : 0.0) * bass;
-            this.activeModel.position.y = this.modelBaseY + bounce;
+        // 3. Procedural Skeletal Groove (Mittanzen / Body Motion to the Music)
+        const bones = this.currentBones;
+        if (bones) {
+            const beatHit = this.beatImpact || 0;
+            const grooveSin = Math.sin(this.groovePhase);
+            const grooveCos = Math.cos(this.groovePhase);
+            const doubleBeat = Math.sin(this.groovePhase * 2);
+
+            // A. Head & Neck: Head-nodding on kicks and rhythmic lateral sway
+            if (bones.head) {
+                const headNod = (beatHit * 0.32 + Math.abs(doubleBeat) * 0.12) * Math.max(0.35, energy);
+                const headSway = grooveSin * 0.16 * mid;
+                const headRoll = grooveCos * 0.08 * energy;
+
+                bones.head.rotateX(headNod);
+                bones.head.rotateZ(headSway);
+                bones.head.rotateY(headRoll);
+            }
+
+            // B. Spine & Chest: Torso leans, dips and twists into the groove
+            if (bones.spine) {
+                const spineLean = grooveSin * 0.18 * energy;
+                const spineDip = (beatHit * 0.20 + doubleBeat * 0.08) * bass;
+                const spineTwist = grooveCos * 0.15 * mid;
+
+                bones.spine.rotateZ(spineLean);
+                bones.spine.rotateX(spineDip);
+                bones.spine.rotateY(spineTwist);
+            }
+
+            // C. Hips & Pelvis: Counter-rhythm hip swivel and bass plunges
+            if (bones.hips) {
+                const hipSwivel = -grooveSin * 0.25 * energy;
+                const hipTilt = -grooveCos * 0.14 * energy;
+                const hipPlunge = -beatHit * 0.06 * bass;
+
+                bones.hips.rotateY(hipSwivel);
+                bones.hips.rotateZ(hipTilt);
+                bones.hips.position.y += hipPlunge;
+            }
+
+            // D. Arms: Flare wider on high energy and pump to the rhythm
+            if (bones.leftArm) {
+                const lPump = (beatHit * 0.22 + energy * 0.30);
+                bones.leftArm.rotateZ(-lPump);
+                bones.leftArm.rotateX(grooveSin * 0.18 * energy);
+            }
+            if (bones.rightArm) {
+                const rPump = (beatHit * 0.22 + energy * 0.30);
+                bones.rightArm.rotateZ(rPump);
+                bones.rightArm.rotateX(-grooveSin * 0.18 * energy);
+            }
         }
 
-        // 3. Audio-Reactive Stage Floor Pulses
+        // 4. Dynamic Floor Hop & Character Bounce
+        if (this.activeModel) {
+            const bassHop = (this.beatDetected ? 0.07 : 0.0) * bass + Math.abs(Math.sin(this.groovePhase)) * 0.02 * energy;
+            this.activeModel.position.y = this.modelBaseY + bassHop;
+        }
+
+        // 5. Audio-Reactive Stage Floor Pulses & Neon Ripple
         if (this.stagePulse && this.pulseMat) {
-            const ringScale = 1.0 + (this.beatDetected ? 0.32 : bass * 0.14);
+            const ringScale = 1.0 + (this.beatDetected ? 0.38 : bass * 0.16);
             this.stagePulse.scale.set(ringScale, ringScale, 1.0);
-            this.pulseMat.opacity = 0.25 + bass * 0.7;
+            this.pulseMat.opacity = 0.25 + bass * 0.75;
         }
 
         if (this.rimMat) {
             this.rimMat.color.setHSL((now * 0.00015 + bass * 0.25) % 1.0, 1.0, 0.55);
         }
 
-        // 4. Reactive Spotlights
-        if (this.spotCyan) this.spotCyan.intensity = 2.2 + bass * 6.5;
-        if (this.spotMagenta) this.spotMagenta.intensity = 2.2 + metrics.mid * 6.5;
-        if (this.spotRim) this.spotRim.intensity = 1.6 + metrics.high * 4.5;
+        // 6. Reactive Spotlights & Stage Atmosphere
+        if (this.spotCyan) this.spotCyan.intensity = 2.2 + bass * 7.0;
+        if (this.spotMagenta) this.spotMagenta.intensity = 2.2 + mid * 7.0;
+        if (this.spotRim) this.spotRim.intensity = 1.6 + high * 5.0;
 
-        // 5. Floating Cosmic Dust Rotation
+        // 7. Floating Cosmic Dust Swirl
         if (this.particles3D) {
-            this.particles3D.rotation.y += 0.0015 + energy * 0.007;
+            this.particles3D.rotation.y += 0.0015 + energy * 0.008;
         }
 
-        // 6. Subtle idle camera drift when user is not manually orbiting
+        // 8. Beat Camera Punch & Orbit Drift
+        this.cameraPunch = (this.cameraPunch || 0) * 0.85 + (this.beatDetected ? 0.12 * bass : 0.0);
+        const currentDist = Math.max(2.0, this.cameraDistance - this.cameraPunch);
+
         if (!this.isUserOrbiting) {
-            this.cameraAngleX += 0.0012 + energy * 0.0015;
-            this.updateCameraOrbit();
+            this.cameraAngleX += 0.0012 + energy * 0.0018;
         }
+
+        // Update Camera Position with Punch Distance
+        const targetY = 1.05;
+        const x = Math.sin(this.cameraAngleX) * Math.cos(this.cameraAngleY) * currentDist;
+        const y = targetY + Math.sin(this.cameraAngleY) * currentDist;
+        const z = Math.cos(this.cameraAngleX) * Math.cos(this.cameraAngleY) * currentDist;
+        this.camera3D.position.set(x, y, z);
+        this.camera3D.lookAt(0, targetY, 0);
 
         this.renderer3D.render(this.scene3D, this.camera3D);
     }
