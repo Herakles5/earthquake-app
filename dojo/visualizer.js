@@ -23,6 +23,60 @@ class ReactiveVisualizer {
         this.hudFreq = document.getElementById('hud-freq');
         this.hudSignal = document.getElementById('hud-signal');
 
+        this.canvas3D = document.getElementById('visualizer-3d-canvas');
+        this.dancerBar = document.getElementById('vis-dancer-bar');
+        this.hint3D = document.getElementById('vis-3d-hint');
+        this.loading3D = document.getElementById('vis-3d-loading');
+        this.loadingText3D = document.getElementById('vis-3d-loading-text');
+
+        // 3D Cyber Dancer State
+        this.currentDancer = 'miku';
+        this.dancers = {
+            miku: {
+                name: 'Hatsune Miku',
+                url: 'models/miku_-_dance_animation.glb',
+                targetHeight: 2.15,
+                style: 'Pop Idol Dance'
+            },
+            wednesday: {
+                name: 'Wednesday Addams',
+                url: 'models/wednesday_gangnam_style.glb',
+                targetHeight: 2.1,
+                style: 'Gangnam Style'
+            },
+            stormtrooper: {
+                name: 'Stormtrooper',
+                url: 'models/dancing_stormtrooper.glb',
+                targetHeight: 2.2,
+                style: 'Galactic Breakdance'
+            },
+            chicken: {
+                name: 'Skeleton Chicken',
+                url: 'models/skeleton_chicken_dance_1.glb',
+                targetHeight: 2.0,
+                style: 'Funky Chicken Disco'
+            },
+            hiphop: {
+                name: 'Hip-Hop Boy',
+                url: 'models/hip_hop_dancing.glb',
+                targetHeight: 2.15,
+                style: 'Street Shuffling'
+            }
+        };
+
+        this.is3DInitialized = false;
+        this.modelCache = {};
+        this.activeModel = null;
+        this.activeMixer = null;
+        this.activeAction = null;
+        this.modelBaseY = 0;
+        this.danceSpeed = 1.0;
+        this.lastFrameTime3D = performance.now();
+        this.cameraAngleX = 0;
+        this.cameraAngleY = 0.22;
+        this.cameraDistance = 4.2;
+        this.isUserOrbiting = false;
+
         this.currentMode = 'nebula';
         this.currentSource = 'ambient'; // 'ambient' | 'mic' | 'testbeat'
 
@@ -65,8 +119,15 @@ class ReactiveVisualizer {
     initCanvasSize() {
         const resize = () => {
             const container = this.canvas.parentElement;
-            this.canvas.width = container.clientWidth || 800;
-            this.canvas.height = container.clientHeight || 500;
+            const w = container.clientWidth || 800;
+            const h = container.clientHeight || 500;
+            this.canvas.width = w;
+            this.canvas.height = h;
+            if (this.renderer3D && this.camera3D) {
+                this.renderer3D.setSize(w, h);
+                this.camera3D.aspect = w / h;
+                this.camera3D.updateProjectionMatrix();
+            }
         };
         window.addEventListener('resize', resize);
         setTimeout(resize, 100);
@@ -280,7 +341,32 @@ class ReactiveVisualizer {
         document.querySelectorAll('.vis-mode-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.mode === mode);
         });
-        window.AionApp?.showToast(`Modus: ${mode.toUpperCase()}`);
+
+        if (mode === 'dance3d') {
+            this.canvas.style.display = 'none';
+            if (this.canvas3D) this.canvas3D.style.display = 'block';
+            if (this.dancerBar) this.dancerBar.style.display = 'flex';
+            if (this.hint3D) this.hint3D.style.display = 'block';
+
+            if (!this.is3DInitialized) {
+                this.init3DScene();
+            }
+            if (this.renderer3D && this.camera3D && this.canvas3D) {
+                const w = this.canvas3D.parentElement.clientWidth || 800;
+                const h = this.canvas3D.parentElement.clientHeight || 500;
+                this.renderer3D.setSize(w, h);
+                this.camera3D.aspect = w / h;
+                this.camera3D.updateProjectionMatrix();
+            }
+            window.AionApp?.showToast('Modus: 3D CYBER DANCER');
+        } else {
+            this.canvas.style.display = 'block';
+            if (this.canvas3D) this.canvas3D.style.display = 'none';
+            if (this.dancerBar) this.dancerBar.style.display = 'none';
+            if (this.hint3D) this.hint3D.style.display = 'none';
+            if (this.loading3D) this.loading3D.style.display = 'none';
+            window.AionApp?.showToast(`Modus: ${mode.toUpperCase()}`);
+        }
     }
 
     updateAudioData() {
@@ -458,12 +544,17 @@ class ReactiveVisualizer {
             return;
         }
 
+        const metrics = this.updateAudioData();
+
+        if (this.currentMode === 'dance3d') {
+            this.render3DDancer(metrics);
+            return;
+        }
+
         const w = this.canvas.width;
         const h = this.canvas.height;
         const cx = w / 2;
         const cy = h / 2;
-
-        const metrics = this.updateAudioData();
 
         // Smooth background fade
         this.ctx.fillStyle = 'rgba(4, 5, 8, 0.22)';
@@ -717,6 +808,348 @@ class ReactiveVisualizer {
         this.ctx.restore();
     }
 
+    /* =========================================================================
+       3D CYBER DANCER STAGE & BEAT-REACTIVE SKELETAL AVATAR ENGINE
+       ========================================================================= */
+
+    init3DScene() {
+        if (typeof THREE === 'undefined') {
+            console.error('Three.js is not loaded.');
+            return;
+        }
+
+        const container = this.canvas3D.parentElement;
+        const w = container.clientWidth || 800;
+        const h = container.clientHeight || 500;
+
+        // 1. WebGL Renderer
+        this.renderer3D = new THREE.WebGLRenderer({
+            canvas: this.canvas3D,
+            antialias: true,
+            alpha: true,
+            powerPreference: 'high-performance'
+        });
+        this.renderer3D.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+        this.renderer3D.setSize(w, h);
+        if (THREE.sRGBEncoding) {
+            this.renderer3D.outputEncoding = THREE.sRGBEncoding;
+        }
+
+        // 2. Scene & Orbit Camera
+        this.scene3D = new THREE.Scene();
+        this.camera3D = new THREE.PerspectiveCamera(45, w / h, 0.1, 100);
+        this.cameraAngleX = 0;
+        this.cameraAngleY = 0.25;
+        this.cameraDistance = 4.3;
+        this.updateCameraOrbit();
+
+        // 3. Cyberpunk Stage
+        const stageGroup = new THREE.Group();
+
+        // Cylindrical Stage Podium
+        const stageGeo = new THREE.CylinderGeometry(2.35, 2.5, 0.14, 48);
+        const stageMat = new THREE.MeshStandardMaterial({
+            color: 0x060812,
+            roughness: 0.25,
+            metalness: 0.85
+        });
+        this.stageMesh = new THREE.Mesh(stageGeo, stageMat);
+        this.stageMesh.position.y = -0.07;
+        stageGroup.add(this.stageMesh);
+
+        // Neon Outer Rim
+        const rimGeo = new THREE.TorusGeometry(2.42, 0.035, 16, 64);
+        rimGeo.rotateX(Math.PI / 2);
+        this.rimMat = new THREE.MeshBasicMaterial({ color: 0x00ffcc });
+        this.stageRim = new THREE.Mesh(rimGeo, this.rimMat);
+        this.stageRim.position.y = 0.002;
+        stageGroup.add(this.stageRim);
+
+        // Audio-Reactive Pulse Ring
+        const pulseGeo = new THREE.RingGeometry(2.32, 2.52, 64);
+        pulseGeo.rotateX(-Math.PI / 2);
+        this.pulseMat = new THREE.MeshBasicMaterial({
+            color: 0xff00aa,
+            transparent: true,
+            opacity: 0.45,
+            side: THREE.DoubleSide
+        });
+        this.stagePulse = new THREE.Mesh(pulseGeo, this.pulseMat);
+        this.stagePulse.position.y = 0.005;
+        stageGroup.add(this.stagePulse);
+
+        // Polar Cyber Grid on floor
+        const gridHelper = new THREE.PolarGridHelper(2.35, 16, 8, 32, 0x00ffcc, 0x3d1768);
+        gridHelper.position.y = 0.008;
+        stageGroup.add(gridHelper);
+
+        this.scene3D.add(stageGroup);
+
+        // 4. Ambient and Spot Lights
+        this.scene3D.add(new THREE.AmbientLight(0x221a38, 1.4));
+
+        const keyLight = new THREE.DirectionalLight(0xffffff, 1.1);
+        keyLight.position.set(0, 6, 4.5);
+        this.scene3D.add(keyLight);
+
+        this.spotCyan = new THREE.SpotLight(0x00ffcc, 3.5, 15, Math.PI / 4, 0.35);
+        this.spotCyan.position.set(-2.6, 4.0, 2.6);
+        this.spotCyan.target.position.set(0, 1.0, 0);
+        this.scene3D.add(this.spotCyan);
+        this.scene3D.add(this.spotCyan.target);
+
+        this.spotMagenta = new THREE.SpotLight(0xff00aa, 3.5, 15, Math.PI / 4, 0.35);
+        this.spotMagenta.position.set(2.6, 4.0, 2.6);
+        this.spotMagenta.target.position.set(0, 1.0, 0);
+        this.scene3D.add(this.spotMagenta);
+        this.scene3D.add(this.spotMagenta.target);
+
+        this.spotRim = new THREE.SpotLight(0x9d4edd, 2.8, 15, Math.PI / 3, 0.5);
+        this.spotRim.position.set(0, 3.6, -2.6);
+        this.spotRim.target.position.set(0, 1.0, 0);
+        this.scene3D.add(this.spotRim);
+        this.scene3D.add(this.spotRim.target);
+
+        // 5. Floating Cosmic Dust Particles
+        const partCount = 140;
+        const partGeo = new THREE.BufferGeometry();
+        const partPos = new Float32Array(partCount * 3);
+        for (let i = 0; i < partCount * 3; i += 3) {
+            const r = 0.8 + Math.random() * 2.5;
+            const theta = Math.random() * Math.PI * 2;
+            partPos[i] = Math.cos(theta) * r;
+            partPos[i + 1] = Math.random() * 3.5;
+            partPos[i + 2] = Math.sin(theta) * r;
+        }
+        partGeo.setAttribute('position', new THREE.BufferAttribute(partPos, 3));
+        const partMat = new THREE.PointsMaterial({
+            color: 0x00ffcc,
+            size: 0.04,
+            transparent: true,
+            opacity: 0.65
+        });
+        this.particles3D = new THREE.Points(partGeo, partMat);
+        this.scene3D.add(this.particles3D);
+
+        // 6. Interactive Orbit & Drag Controls
+        let isPointerDown = false;
+        let lastPointerX = 0;
+        let lastPointerY = 0;
+
+        const onPointerDown = (e) => {
+            isPointerDown = true;
+            this.isUserOrbiting = true;
+            lastPointerX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
+            lastPointerY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+        };
+
+        const onPointerMove = (e) => {
+            if (!isPointerDown) return;
+            const clientX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
+            const clientY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
+            const dx = clientX - lastPointerX;
+            const dy = clientY - lastPointerY;
+            lastPointerX = clientX;
+            lastPointerY = clientY;
+
+            this.cameraAngleX -= dx * 0.007;
+            this.cameraAngleY = Math.max(-0.15, Math.min(1.2, this.cameraAngleY + dy * 0.007));
+            this.updateCameraOrbit();
+        };
+
+        const onPointerUp = () => {
+            isPointerDown = false;
+            setTimeout(() => { this.isUserOrbiting = false; }, 2500);
+        };
+
+        this.canvas3D.addEventListener('mousedown', onPointerDown);
+        window.addEventListener('mousemove', onPointerMove);
+        window.addEventListener('mouseup', onPointerUp);
+
+        this.canvas3D.addEventListener('touchstart', onPointerDown, { passive: true });
+        window.addEventListener('touchmove', onPointerMove, { passive: true });
+        window.addEventListener('touchend', onPointerUp);
+
+        this.canvas3D.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            this.cameraDistance = Math.max(1.8, Math.min(7.5, this.cameraDistance + e.deltaY * 0.0035));
+            this.updateCameraOrbit();
+        }, { passive: false });
+
+        this.is3DInitialized = true;
+        this.switchDancer(this.currentDancer || 'miku');
+    }
+
+    updateCameraOrbit() {
+        if (!this.camera3D) return;
+        const targetY = 1.05;
+        const x = Math.sin(this.cameraAngleX) * Math.cos(this.cameraAngleY) * this.cameraDistance;
+        const y = targetY + Math.sin(this.cameraAngleY) * this.cameraDistance;
+        const z = Math.cos(this.cameraAngleX) * Math.cos(this.cameraAngleY) * this.cameraDistance;
+        this.camera3D.position.set(x, y, z);
+        this.camera3D.lookAt(0, targetY, 0);
+    }
+
+    switchDancer(dancerKey) {
+        if (!this.dancers[dancerKey]) return;
+        this.currentDancer = dancerKey;
+        const cfg = this.dancers[dancerKey];
+
+        document.querySelectorAll('.vis-dancer-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.model === dancerKey);
+        });
+
+        if (this.activeModel) {
+            this.scene3D.remove(this.activeModel);
+            this.activeModel = null;
+        }
+        if (this.activeAction) {
+            this.activeAction.stop();
+            this.activeAction = null;
+        }
+
+        if (this.modelCache[dancerKey]) {
+            const cached = this.modelCache[dancerKey];
+            this.activeModel = cached.scene;
+            this.activeMixer = cached.mixer;
+            this.activeAction = cached.action;
+            this.modelBaseY = cached.baseY;
+            this.scene3D.add(this.activeModel);
+            if (this.activeAction) {
+                this.activeAction.reset();
+                this.activeAction.play();
+            }
+            window.AionApp?.showToast(`💃 3D DANCER: ${cfg.name} (${cfg.style})`);
+            return;
+        }
+
+        // Load model via GLTFLoader
+        if (this.loading3D) {
+            this.loading3D.style.display = 'block';
+            if (this.loadingText3D) this.loadingText3D.textContent = `LADE 3D AVATAR: ${cfg.name.toUpperCase()}...`;
+        }
+
+        const loader = new THREE.GLTFLoader();
+        loader.load(cfg.url, (gltf) => {
+            const model = gltf.scene;
+
+            // Auto-calculate bounds and normalize model height to ~2.1m
+            const box = new THREE.Box3().setFromObject(model);
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+            const targetH = cfg.targetHeight || 2.1;
+            const scale = targetH / Math.max(size.y, 0.001);
+            model.scale.set(scale, scale, scale);
+
+            // Recompute box with new scale and ground feet to stage floor at Y=0
+            const scaledBox = new THREE.Box3().setFromObject(model);
+            const baseY = -scaledBox.min.y;
+            model.position.y = baseY;
+            model.position.x = -center.x * scale;
+            model.position.z = -center.z * scale;
+
+            // Set up shadows & tone for materials
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    if (child.material) {
+                        child.material.metalness = child.material.metalness || 0.15;
+                    }
+                }
+            });
+
+            // Animation setup
+            let mixer = null;
+            let action = null;
+            if (gltf.animations && gltf.animations.length > 0) {
+                mixer = new THREE.AnimationMixer(model);
+                action = mixer.clipAction(gltf.animations[0]);
+                action.setLoop(THREE.LoopRepeat);
+                action.play();
+            }
+
+            this.modelCache[dancerKey] = {
+                scene: model,
+                mixer: mixer,
+                action: action,
+                baseY: baseY
+            };
+
+            if (this.currentDancer === dancerKey) {
+                this.activeModel = model;
+                this.activeMixer = mixer;
+                this.activeAction = action;
+                this.modelBaseY = baseY;
+                this.scene3D.add(model);
+            }
+
+            if (this.loading3D) this.loading3D.style.display = 'none';
+            window.AionApp?.showToast(`💃 3D DANCER: ${cfg.name} (${cfg.style})`);
+        }, undefined, (err) => {
+            console.error('Failed to load dancer model:', err);
+            if (this.loading3D) this.loading3D.style.display = 'none';
+            window.AionApp?.showToast(`Fehler beim Laden von ${cfg.name}`);
+        });
+    }
+
+    render3DDancer(metrics) {
+        if (!this.is3DInitialized || !this.renderer3D || !this.scene3D || !this.camera3D) return;
+
+        const now = performance.now();
+        const delta = Math.min((now - this.lastFrameTime3D) / 1000, 0.08);
+        this.lastFrameTime3D = now;
+
+        const bass = metrics.bass || 0;
+        const energy = metrics.energy || 0;
+
+        // 1. Beat-Synced Dynamic Playback Speed
+        let targetSpeed = 0.95 + energy * 0.85;
+        if (this.beatDetected) {
+            targetSpeed += 0.55; // Beat kick boost!
+        }
+        this.danceSpeed += (targetSpeed - this.danceSpeed) * 0.14;
+
+        if (this.activeMixer) {
+            this.activeMixer.update(delta * this.danceSpeed);
+        }
+
+        // 2. Rhythmic Bounce & Bass Hop
+        if (this.activeModel) {
+            const bounce = (this.beatDetected ? 0.055 : 0.0) * bass;
+            this.activeModel.position.y = this.modelBaseY + bounce;
+        }
+
+        // 3. Audio-Reactive Stage Floor Pulses
+        if (this.stagePulse && this.pulseMat) {
+            const ringScale = 1.0 + (this.beatDetected ? 0.32 : bass * 0.14);
+            this.stagePulse.scale.set(ringScale, ringScale, 1.0);
+            this.pulseMat.opacity = 0.25 + bass * 0.7;
+        }
+
+        if (this.rimMat) {
+            this.rimMat.color.setHSL((now * 0.00015 + bass * 0.25) % 1.0, 1.0, 0.55);
+        }
+
+        // 4. Reactive Spotlights
+        if (this.spotCyan) this.spotCyan.intensity = 2.2 + bass * 6.5;
+        if (this.spotMagenta) this.spotMagenta.intensity = 2.2 + metrics.mid * 6.5;
+        if (this.spotRim) this.spotRim.intensity = 1.6 + metrics.high * 4.5;
+
+        // 5. Floating Cosmic Dust Rotation
+        if (this.particles3D) {
+            this.particles3D.rotation.y += 0.0015 + energy * 0.007;
+        }
+
+        // 6. Subtle idle camera drift when user is not manually orbiting
+        if (!this.isUserOrbiting) {
+            this.cameraAngleX += 0.0012 + energy * 0.0015;
+            this.updateCameraOrbit();
+        }
+
+        this.renderer3D.render(this.scene3D, this.camera3D);
+    }
+
     initEvents() {
         document.getElementById('btn-source-ambient')?.addEventListener('click', () => this.setSource('ambient'));
         document.getElementById('btn-source-mic')?.addEventListener('click', () => this.setSource('mic'));
@@ -729,6 +1162,10 @@ class ReactiveVisualizer {
 
         document.querySelectorAll('.vis-mode-btn').forEach(btn => {
             btn.addEventListener('click', () => this.setMode(btn.dataset.mode));
+        });
+
+        document.querySelectorAll('.vis-dancer-btn').forEach(btn => {
+            btn.addEventListener('click', () => this.switchDancer(btn.dataset.model));
         });
 
         document.getElementById('btn-vis-fullscreen')?.addEventListener('click', () => {
