@@ -1064,7 +1064,6 @@ class ReactiveVisualizer {
             this.activeMixer = cached.mixer;
             this.activeAction = cached.action;
             this.modelBaseY = cached.baseY;
-            this.currentBones = cached.bones;
             this.scene3D.add(this.activeModel);
             if (this.activeAction) {
                 this.activeAction.reset();
@@ -1094,31 +1093,6 @@ class ReactiveVisualizer {
             model.scale.set(scale, scale, scale);
             model.position.set(baseX, baseY, baseZ);
 
-            // Find key skeletal bones for procedural beat groove
-            const bones = {};
-            const findBone = (patterns) => {
-                let found = null;
-                model.traverse((child) => {
-                    if (found) return;
-                    if (child.isBone || child.type === 'Bone') {
-                        const name = child.name.toLowerCase();
-                        for (const pat of patterns) {
-                            if (name.includes(pat.toLowerCase())) {
-                                found = child;
-                                return;
-                            }
-                        }
-                    }
-                });
-                return found;
-            };
-
-            bones.head = findBone(['head_034', 'mixamorig:head_06', 'mixamorig:head_00', 'head_05', 'head', 'neck']);
-            bones.spine = findBone(['spine2_04', 'spine2_064', 'spine_01_06', 'spine_01_01', 'spine2', 'spine1', 'spine', 'chest']);
-            bones.hips = findBone(['pelvis_02', 'mixamorig:hips', 'hip_0111', 'hips', 'pelvis']);
-            bones.leftArm = findBone(['upperarm_l_048', 'mixamorig:leftarm', 'l_arm_019', 'leftarm', 'arm_l', 'l_arm', 'upperarm_l']);
-            bones.rightArm = findBone(['upperarm_r_010', 'mixamorig:rightarm', 'r_arm_047', 'rightarm', 'arm_r', 'r_arm', 'upperarm_r']);
-
             // Set up shadows, double-sided materials & disable frustum culling on skinned meshes
             model.traverse((child) => {
                 if (child.isMesh) {
@@ -1146,8 +1120,7 @@ class ReactiveVisualizer {
                 scene: model,
                 mixer: mixer,
                 action: action,
-                baseY: baseY,
-                bones: bones
+                baseY: baseY
             };
 
             if (this.currentDancer === dancerKey) {
@@ -1155,7 +1128,6 @@ class ReactiveVisualizer {
                 this.activeMixer = mixer;
                 this.activeAction = action;
                 this.modelBaseY = baseY;
-                this.currentBones = bones;
                 this.scene3D.add(model);
                 this.updateCameraOrbit();
             }
@@ -1212,62 +1184,19 @@ class ReactiveVisualizer {
             this.activeMixer.update(delta * this.danceSpeed);
         }
 
-        // 3. Procedural Skeletal Groove (Mittanzen / Body Motion to the Music)
-        const bones = this.currentBones;
-        if (bones) {
+        // 3. Audio-Synchronized Beat Bounce & Rhythmic Body Groove
+        if (this.activeModel) {
             const beatHit = this.beatImpact || 0;
             const grooveSin = Math.sin(this.groovePhase);
-            const grooveCos = Math.cos(this.groovePhase);
             const doubleBeat = Math.sin(this.groovePhase * 2);
 
-            // A. Head & Neck: Head-nodding on kicks and rhythmic lateral sway
-            if (bones.head) {
-                const headNod = (beatHit * 0.32 + Math.abs(doubleBeat) * 0.12) * Math.max(0.35, energy);
-                const headSway = grooveSin * 0.16 * mid;
-                const headRoll = grooveCos * 0.08 * energy;
-
-                bones.head.rotateX(headNod);
-                bones.head.rotateZ(headSway);
-                bones.head.rotateY(headRoll);
-            }
-
-            // B. Spine & Chest: Torso leans, dips and twists into the groove
-            if (bones.spine) {
-                const spineLean = grooveSin * 0.18 * energy;
-                const spineDip = (beatHit * 0.20 + doubleBeat * 0.08) * bass;
-                const spineTwist = grooveCos * 0.15 * mid;
-
-                bones.spine.rotateZ(spineLean);
-                bones.spine.rotateX(spineDip);
-                bones.spine.rotateY(spineTwist);
-            }
-
-            // C. Hips & Pelvis: Counter-rhythm hip swivel
-            if (bones.hips) {
-                const hipSwivel = -grooveSin * 0.22 * energy;
-                const hipTilt = -grooveCos * 0.12 * energy;
-
-                bones.hips.rotateY(hipSwivel);
-                bones.hips.rotateZ(hipTilt);
-            }
-
-            // D. Arms: Flare wider on high energy and pump to the rhythm
-            if (bones.leftArm) {
-                const lPump = (beatHit * 0.18 + energy * 0.22);
-                bones.leftArm.rotateZ(-lPump);
-                bones.leftArm.rotateX(grooveSin * 0.15 * energy);
-            }
-            if (bones.rightArm) {
-                const rPump = (beatHit * 0.18 + energy * 0.22);
-                bones.rightArm.rotateZ(rPump);
-                bones.rightArm.rotateX(-grooveSin * 0.15 * energy);
-            }
-        }
-
-        // 4. Dynamic Floor Hop & Character Bounce
-        if (this.activeModel) {
-            const bassHop = (this.beatDetected ? 0.06 : 0.0) * bass + Math.abs(Math.sin(this.groovePhase)) * 0.018 * energy;
+            // Ground-anchored floor hop (subtle 0 to 4cm jump on kicks, never drifts)
+            const bassHop = (this.beatDetected ? 0.04 : 0.0) * bass + Math.abs(grooveSin) * 0.012 * energy;
             this.activeModel.position.y = this.modelBaseY + bassHop;
+
+            // Rhythmic whole-body sway and beat nodding (absolute assignment, never accumulates)
+            this.activeModel.rotation.z = grooveSin * 0.032 * energy;
+            this.activeModel.rotation.x = Math.abs(doubleBeat) * 0.02 * (bass + beatHit * 0.02);
         }
 
         // 5. Audio-Reactive Stage Floor Pulses & Neon Ripple
