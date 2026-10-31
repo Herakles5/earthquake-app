@@ -51,7 +51,7 @@ class ReactiveVisualizer {
                 url: 'models/wednesday_gangnam_style.glb',
                 scale: 475.0,
                 offsetX: 0.0,
-                offsetY: 1.405,
+                offsetY: -0.02,
                 offsetZ: -1.05,
                 targetY: 1.05,
                 style: 'Gangnam Style'
@@ -71,7 +71,7 @@ class ReactiveVisualizer {
                 url: 'models/skeleton_chicken_dance_1.glb',
                 scale: 0.73,
                 offsetX: 0.0,
-                offsetY: 0.18,
+                offsetY: 0.0,
                 offsetZ: 0.0,
                 targetY: 1.05,
                 style: 'Funky Chicken Disco'
