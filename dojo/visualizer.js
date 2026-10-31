@@ -31,35 +31,59 @@ class ReactiveVisualizer {
 
         // 3D Cyber Dancer State
         this.currentDancer = 'miku';
+        this.cameraDistance = 3.6;
+        this.cameraAngleX = 0;
+        this.cameraAngleY = 0.22;
+        this.cameraTargetY = 1.05;
         this.dancers = {
             miku: {
                 name: 'Hatsune Miku',
                 url: 'models/miku_-_dance_animation.glb',
-                targetHeight: 2.15,
+                scale: 1.0,
+                offsetX: 0.0,
+                offsetY: -0.12,
+                offsetZ: 0.0,
+                targetY: 1.05,
                 style: 'Pop Idol Dance'
             },
             wednesday: {
                 name: 'Wednesday Addams',
                 url: 'models/wednesday_gangnam_style.glb',
-                targetHeight: 2.1,
+                scale: 475.0,
+                offsetX: 0.0,
+                offsetY: 1.405,
+                offsetZ: -1.05,
+                targetY: 1.05,
                 style: 'Gangnam Style'
             },
             stormtrooper: {
                 name: 'Stormtrooper',
                 url: 'models/dancing_stormtrooper.glb',
-                targetHeight: 2.2,
+                scale: 0.695,
+                offsetX: 0.0,
+                offsetY: -0.026,
+                offsetZ: 0.0,
+                targetY: 1.10,
                 style: 'Galactic Breakdance'
             },
             chicken: {
                 name: 'Skeleton Chicken',
                 url: 'models/skeleton_chicken_dance_1.glb',
-                targetHeight: 2.0,
+                scale: 0.73,
+                offsetX: 0.0,
+                offsetY: 0.18,
+                offsetZ: 0.0,
+                targetY: 1.05,
                 style: 'Funky Chicken Disco'
             },
             hiphop: {
                 name: 'Hip-Hop Boy',
                 url: 'models/hip_hop_dancing.glb',
-                targetHeight: 2.15,
+                scale: 0.0453,
+                offsetX: 0.0,
+                offsetY: -0.011,
+                offsetZ: 0.0,
+                targetY: 1.05,
                 style: 'Street Shuffling'
             }
         };
@@ -931,12 +955,26 @@ class ReactiveVisualizer {
         this.particles3D = new THREE.Points(partGeo, partMat);
         this.scene3D.add(this.particles3D);
 
-        // 6. Interactive Orbit & Drag Controls
+        // 6. Interactive Orbit & Drag Controls with Multi-Touch Pinch-to-Zoom
         let isPointerDown = false;
         let lastPointerX = 0;
         let lastPointerY = 0;
+        let initialPinchDistance = null;
+        let initialCameraDistance = null;
+
+        const getPinchDistance = (touches) => {
+            if (!touches || touches.length < 2) return null;
+            const dx = touches[0].clientX - touches[1].clientX;
+            const dy = touches[0].clientY - touches[1].clientY;
+            return Math.sqrt(dx * dx + dy * dy);
+        };
 
         const onPointerDown = (e) => {
+            if (e.touches && e.touches.length === 2) {
+                initialPinchDistance = getPinchDistance(e.touches);
+                initialCameraDistance = this.cameraDistance;
+                return;
+            }
             isPointerDown = true;
             this.isUserOrbiting = true;
             lastPointerX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
@@ -944,6 +982,15 @@ class ReactiveVisualizer {
         };
 
         const onPointerMove = (e) => {
+            if (e.touches && e.touches.length === 2 && initialPinchDistance) {
+                const currentPinch = getPinchDistance(e.touches);
+                if (currentPinch && initialPinchDistance > 0) {
+                    const ratio = initialPinchDistance / currentPinch;
+                    this.cameraDistance = Math.max(0.6, Math.min(25.0, initialCameraDistance * ratio));
+                    this.updateCameraOrbit();
+                }
+                return;
+            }
             if (!isPointerDown) return;
             const clientX = e.clientX || (e.touches && e.touches[0].clientX) || 0;
             const clientY = e.clientY || (e.touches && e.touches[0].clientY) || 0;
@@ -953,12 +1000,13 @@ class ReactiveVisualizer {
             lastPointerY = clientY;
 
             this.cameraAngleX -= dx * 0.007;
-            this.cameraAngleY = Math.max(-0.15, Math.min(1.2, this.cameraAngleY + dy * 0.007));
+            this.cameraAngleY = Math.max(-0.25, Math.min(1.35, this.cameraAngleY + dy * 0.007));
             this.updateCameraOrbit();
         };
 
         const onPointerUp = () => {
             isPointerDown = false;
+            initialPinchDistance = null;
             setTimeout(() => { this.isUserOrbiting = false; }, 2500);
         };
 
@@ -970,9 +1018,10 @@ class ReactiveVisualizer {
         window.addEventListener('touchmove', onPointerMove, { passive: true });
         window.addEventListener('touchend', onPointerUp);
 
+        // Generous Wide-Angle & Close-Up Zoom (0.6m to 25.0m)
         this.canvas3D.addEventListener('wheel', (e) => {
             e.preventDefault();
-            this.cameraDistance = Math.max(1.8, Math.min(7.5, this.cameraDistance + e.deltaY * 0.0035));
+            this.cameraDistance = Math.max(0.6, Math.min(25.0, this.cameraDistance + e.deltaY * 0.006));
             this.updateCameraOrbit();
         }, { passive: false });
 
@@ -982,7 +1031,7 @@ class ReactiveVisualizer {
 
     updateCameraOrbit() {
         if (!this.camera3D) return;
-        const targetY = 1.05;
+        const targetY = this.cameraTargetY || 1.05;
         const x = Math.sin(this.cameraAngleX) * Math.cos(this.cameraAngleY) * this.cameraDistance;
         const y = targetY + Math.sin(this.cameraAngleY) * this.cameraDistance;
         const z = Math.cos(this.cameraAngleX) * Math.cos(this.cameraAngleY) * this.cameraDistance;
@@ -994,6 +1043,7 @@ class ReactiveVisualizer {
         if (!this.dancers[dancerKey]) return;
         this.currentDancer = dancerKey;
         const cfg = this.dancers[dancerKey];
+        this.cameraTargetY = cfg.targetY || 1.05;
 
         document.querySelectorAll('.vis-dancer-btn').forEach(btn => {
             btn.classList.toggle('active', btn.dataset.model === dancerKey);
@@ -1020,6 +1070,7 @@ class ReactiveVisualizer {
                 this.activeAction.reset();
                 this.activeAction.play();
             }
+            this.updateCameraOrbit();
             window.AionApp?.showToast(`💃 3D DANCER: ${cfg.name} (${cfg.style})`);
             return;
         }
@@ -1034,20 +1085,14 @@ class ReactiveVisualizer {
         loader.load(cfg.url, (gltf) => {
             const model = gltf.scene;
 
-            // Auto-calculate bounds and normalize model height to ~2.1m
-            const box = new THREE.Box3().setFromObject(model);
-            const size = box.getSize(new THREE.Vector3());
-            const center = box.getCenter(new THREE.Vector3());
-            const targetH = cfg.targetHeight || 2.1;
-            const scale = targetH / Math.max(size.y, 0.001);
-            model.scale.set(scale, scale, scale);
+            // Apply rock-solid calibrated scaling & ground alignment
+            const scale = cfg.scale !== undefined ? cfg.scale : 1.0;
+            const baseY = cfg.offsetY !== undefined ? cfg.offsetY : 0.0;
+            const baseX = cfg.offsetX !== undefined ? cfg.offsetX : 0.0;
+            const baseZ = cfg.offsetZ !== undefined ? cfg.offsetZ : 0.0;
 
-            // Recompute box with new scale and ground feet to stage floor at Y=0
-            const scaledBox = new THREE.Box3().setFromObject(model);
-            const baseY = -scaledBox.min.y;
-            model.position.y = baseY;
-            model.position.x = -center.x * scale;
-            model.position.z = -center.z * scale;
+            model.scale.set(scale, scale, scale);
+            model.position.set(baseX, baseY, baseZ);
 
             // Find key skeletal bones for procedural beat groove
             const bones = {};
@@ -1074,12 +1119,14 @@ class ReactiveVisualizer {
             bones.leftArm = findBone(['upperarm_l_048', 'mixamorig:leftarm', 'l_arm_019', 'leftarm', 'arm_l', 'l_arm', 'upperarm_l']);
             bones.rightArm = findBone(['upperarm_r_010', 'mixamorig:rightarm', 'r_arm_047', 'rightarm', 'arm_r', 'r_arm', 'upperarm_r']);
 
-            // Set up shadows & tone for materials
+            // Set up shadows, double-sided materials & disable frustum culling on skinned meshes
             model.traverse((child) => {
                 if (child.isMesh) {
+                    child.frustumCulled = false;
                     child.castShadow = true;
                     child.receiveShadow = true;
                     if (child.material) {
+                        child.material.side = THREE.DoubleSide;
                         child.material.metalness = child.material.metalness || 0.15;
                     }
                 }
@@ -1110,6 +1157,7 @@ class ReactiveVisualizer {
                 this.modelBaseY = baseY;
                 this.currentBones = bones;
                 this.scene3D.add(model);
+                this.updateCameraOrbit();
             }
 
             if (this.loading3D) this.loading3D.style.display = 'none';
@@ -1194,33 +1242,31 @@ class ReactiveVisualizer {
                 bones.spine.rotateY(spineTwist);
             }
 
-            // C. Hips & Pelvis: Counter-rhythm hip swivel and bass plunges
+            // C. Hips & Pelvis: Counter-rhythm hip swivel
             if (bones.hips) {
-                const hipSwivel = -grooveSin * 0.25 * energy;
-                const hipTilt = -grooveCos * 0.14 * energy;
-                const hipPlunge = -beatHit * 0.06 * bass;
+                const hipSwivel = -grooveSin * 0.22 * energy;
+                const hipTilt = -grooveCos * 0.12 * energy;
 
                 bones.hips.rotateY(hipSwivel);
                 bones.hips.rotateZ(hipTilt);
-                bones.hips.position.y += hipPlunge;
             }
 
             // D. Arms: Flare wider on high energy and pump to the rhythm
             if (bones.leftArm) {
-                const lPump = (beatHit * 0.22 + energy * 0.30);
+                const lPump = (beatHit * 0.18 + energy * 0.22);
                 bones.leftArm.rotateZ(-lPump);
-                bones.leftArm.rotateX(grooveSin * 0.18 * energy);
+                bones.leftArm.rotateX(grooveSin * 0.15 * energy);
             }
             if (bones.rightArm) {
-                const rPump = (beatHit * 0.22 + energy * 0.30);
+                const rPump = (beatHit * 0.18 + energy * 0.22);
                 bones.rightArm.rotateZ(rPump);
-                bones.rightArm.rotateX(-grooveSin * 0.18 * energy);
+                bones.rightArm.rotateX(-grooveSin * 0.15 * energy);
             }
         }
 
         // 4. Dynamic Floor Hop & Character Bounce
         if (this.activeModel) {
-            const bassHop = (this.beatDetected ? 0.07 : 0.0) * bass + Math.abs(Math.sin(this.groovePhase)) * 0.02 * energy;
+            const bassHop = (this.beatDetected ? 0.06 : 0.0) * bass + Math.abs(Math.sin(this.groovePhase)) * 0.018 * energy;
             this.activeModel.position.y = this.modelBaseY + bassHop;
         }
 
@@ -1246,15 +1292,15 @@ class ReactiveVisualizer {
         }
 
         // 8. Beat Camera Punch & Orbit Drift
-        this.cameraPunch = (this.cameraPunch || 0) * 0.85 + (this.beatDetected ? 0.12 * bass : 0.0);
-        const currentDist = Math.max(2.0, this.cameraDistance - this.cameraPunch);
+        this.cameraPunch = (this.cameraPunch || 0) * 0.85 + (this.beatDetected ? 0.09 * bass : 0.0);
+        const currentDist = Math.max(0.6, Math.min(25.0, this.cameraDistance - this.cameraPunch));
 
         if (!this.isUserOrbiting) {
             this.cameraAngleX += 0.0012 + energy * 0.0018;
         }
 
         // Update Camera Position with Punch Distance
-        const targetY = 1.05;
+        const targetY = this.cameraTargetY || 1.05;
         const x = Math.sin(this.cameraAngleX) * Math.cos(this.cameraAngleY) * currentDist;
         const y = targetY + Math.sin(this.cameraAngleY) * currentDist;
         const z = Math.cos(this.cameraAngleX) * Math.cos(this.cameraAngleY) * currentDist;
@@ -1280,6 +1326,39 @@ class ReactiveVisualizer {
 
         document.querySelectorAll('.vis-dancer-btn').forEach(btn => {
             btn.addEventListener('click', () => this.switchDancer(btn.dataset.model));
+        });
+
+        // Quick Zoom & Camera Reset Buttons
+        document.getElementById('btn-vis-zoom-in')?.addEventListener('click', () => {
+            this.cameraDistance = Math.max(0.6, this.cameraDistance - 0.8);
+            this.updateCameraOrbit();
+        });
+        document.getElementById('btn-vis-zoom-out')?.addEventListener('click', () => {
+            this.cameraDistance = Math.min(25.0, this.cameraDistance + 0.8);
+            this.updateCameraOrbit();
+        });
+        document.getElementById('btn-vis-cam-reset')?.addEventListener('click', () => {
+            this.cameraDistance = 3.6;
+            this.cameraAngleX = 0;
+            this.cameraAngleY = 0.22;
+            this.updateCameraOrbit();
+        });
+
+        // Keyboard Shortcuts for Zooming (+ / - / 0)
+        window.addEventListener('keydown', (e) => {
+            if (this.currentMode !== 'dance3d') return;
+            if (e.key === '+' || e.key === '=') {
+                this.cameraDistance = Math.max(0.6, this.cameraDistance - 0.6);
+                this.updateCameraOrbit();
+            } else if (e.key === '-' || e.key === '_') {
+                this.cameraDistance = Math.min(25.0, this.cameraDistance + 0.6);
+                this.updateCameraOrbit();
+            } else if (e.key === '0') {
+                this.cameraDistance = 3.6;
+                this.cameraAngleX = 0;
+                this.cameraAngleY = 0.22;
+                this.updateCameraOrbit();
+            }
         });
 
         document.getElementById('btn-vis-fullscreen')?.addEventListener('click', () => {

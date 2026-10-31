@@ -861,6 +861,13 @@ html, body {
     box-shadow: 0 0 16px rgba(217, 70, 239, 0.7);
 }
 
+.vis-action-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: auto;
+}
+
 .vis-dancer-group {
     display: flex;
     align-items: center;
