@@ -1145,55 +1145,83 @@ if (typeof ResizeObserver !== 'undefined') {
 }
 resize();
 
+function extractNoaaKp(entry) {
+    if (!entry) return NaN;
+    if (Array.isArray(entry)) return parseFloat(entry[1]);
+    if (typeof entry === 'object' && entry.Kp !== undefined) return parseFloat(entry.Kp);
+    return NaN;
+}
+
+function computeGaiaChargeFromKp(effKp) {
+    let k = Math.max(0, Math.min(9.0, effKp));
+    if (k <= 2.0) {
+        return 0.98 + (k / 2.0) * 0.02;                // Kp 0..2 -> 0.98x .. 1.00x (quiet baseline at Kp 2.0)
+    } else if (k <= 4.0) {
+        return 1.00 + ((k - 2.0) / 2.0) * 0.05;        // Kp 2..4 -> 1.00x .. 1.05x (active / elevated)
+    } else if (k <= 5.0) {
+        return 1.05 + (k - 4.0) * 0.05;                // Kp 4..5 -> 1.05x .. 1.10x (G1 storm threshold)
+    } else {
+        return 1.10 + ((k - 5.0) / 4.0) * 0.25;        // Kp 5..9 -> 1.10x .. 1.35x (G1..G5 geomagnetic storm)
+    }
+}
+
 async function fetchSchumannData() {
     try {
         let res = await fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json');
         let data = await res.json();
-        
-        let lastEntry = data[data.length - 1];
-        let kpVal = parseFloat(lastEntry.Kp);
-        if(!isNaN(kpVal)) {
-            currentKpValue = kpVal;
-            let elKp = document.getElementById('sr-kp-val');
-            if(elKp) elKp.textContent = kpVal.toFixed(2);
-            
-            // RE-VALIDATED CORRELATION MULTIPLIERS (analyze_gaia_v2.py, 2005-2024, M6.0+ mainshocks,
-            // aftershocks removed, identical Kp window for days and quakes, circular-shift permutation test).
-            // Result: no significant effect (best lag p = 0.33; high-Kp ~1.1x, within noise).
-            // The former 0.79x / 1.37x / 1.96x came from comparing different Kp windows (artefact).
-            // We therefore keep only a tiny, shrunk tilt so that the 'Gaia charge' stays a
-            // curiosity-level modifier and does not distort the rhythm predictions:
-            // Kp 0-3: 0.98x | Kp 3-5: 1.00x | Kp >5: up to 1.10x
-            let charge = 1.0;
-            if (kpVal <= 3.0) {
-                charge = 0.98 + (kpVal / 3.0) * 0.02;   // 0.98 -> 1.00
-            } else if (kpVal <= 5.0) {
-                charge = 1.0;
+        if (!Array.isArray(data) || data.length === 0) return;
+
+        let validEntries = [];
+        for (let i = Math.max(0, data.length - 12); i < data.length; i++) {
+            let v = extractNoaaKp(data[i]);
+            if (!isNaN(v)) validEntries.push(v);
+        }
+        if (validEntries.length === 0) return;
+
+        let kpVal = validEntries[validEntries.length - 1];
+        let recent24h = validEntries.slice(-8); // 8 x 3h = 24h window
+        let kpPeak24h = Math.max(...recent24h);
+        // Include 25% magnetotelluric 24h post-storm residual when 24h peak exceeds live 3h Kp
+        let effectiveKp = kpPeak24h > kpVal ? (kpVal * 0.75 + kpPeak24h * 0.25) : kpVal;
+
+        currentKpValue = kpVal;
+        let charge = computeGaiaChargeFromKp(effectiveKp);
+        gaiaChargeMultiplier = charge;
+        _gaiaStatCache.clear();
+
+        let elKp = document.getElementById('sr-kp-val');
+        let elKpPeak = document.getElementById('sr-kp-peak24h');
+        let elMult = document.getElementById('sr-mult-val');
+        let elImp = document.getElementById('stat-sr-impact');
+        let elCharge = document.getElementById('stat-sr-charge');
+        let elSrKp = document.getElementById('stat-sr-kp');
+
+        if (elKp) elKp.textContent = kpVal.toFixed(2);
+        if (elKpPeak) elKpPeak.textContent = kpPeak24h.toFixed(2) + (kpPeak24h >= 5.0 ? ' (Storm)' : '');
+        if (elMult) elMult.textContent = charge.toFixed(2) + "x (eff. Kp " + effectiveKp.toFixed(2) + ")";
+        if (elCharge) {
+            elCharge.textContent = charge.toFixed(2) + "x";
+            elCharge.title = `Live Kp: ${kpVal.toFixed(2)} | 24h Peak Kp: ${kpPeak24h.toFixed(2)} | Effective Kp: ${effectiveKp.toFixed(2)} -> Gaia Charge: ${charge.toFixed(3)}x`;
+        }
+        if (elSrKp) {
+            elSrKp.textContent = kpVal.toFixed(2);
+            elSrKp.title = `Live 3h Kp: ${kpVal.toFixed(2)} (24h Peak: ${kpPeak24h.toFixed(2)})`;
+        }
+
+        if (elImp) {
+            if (kpVal >= 5.0) {
+                let gScale = Math.min(5, Math.max(1, Math.floor(kpVal) - 4));
+                elImp.textContent = `Storm (G${gScale})`;
+                elImp.style.color = "#ff3333";
+            } else if (kpVal >= 4.0) {
+                elImp.textContent = "Elevated";
+                elImp.style.color = "#ffaa00";
+            } else if (kpPeak24h >= 5.0) {
+                elImp.textContent = "Post-Storm";
+                elImp.style.color = "#ff88ff";
             } else {
-                charge = 1.0 + Math.min(1.0, (kpVal - 5.0) / 4.0) * 0.10; // 1.00 -> 1.10
-            }
-            gaiaChargeMultiplier = charge;
-            
-            let elMult = document.getElementById('sr-mult-val');
-            let elImp = document.getElementById('stat-sr-impact');
-            let elCharge = document.getElementById('stat-sr-charge');
-            let elSrKp = document.getElementById('stat-sr-kp');
-            
-            if(elMult) elMult.textContent = charge.toFixed(2) + "x";
-            if(elCharge) elCharge.textContent = charge.toFixed(2) + "x";
-            if(elSrKp) elSrKp.textContent = kpVal.toFixed(2);
-            
-            if(elImp) {
-                if(kpVal >= 5.0) {
-                    elImp.textContent = "Geomagnetic Storm";
-                    elImp.style.color = "#ff3333";
-                } else if(kpVal >= 4.0) {
-                    elImp.textContent = "Elevated";
-                    elImp.style.color = "#ffaa00";
-                } else {
-                    elImp.textContent = "Normal";
-                    elImp.style.color = "#00ffcc";
-                }
+                elImp.textContent = "Normal";
+                elImp.style.color = "#00ffcc";
             }
         }
     } catch(e) {
