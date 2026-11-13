@@ -1401,8 +1401,133 @@ h3 {
 #controls { top: auto !important; right: auto !important; left: 15px !important; bottom: 20px !important; transform: none; }
 #search-panel { top: calc(var(--strip-h) + 6px) !important; left: 15px; z-index: 120; }
 
+/* ========== Forecast & Plate Drift Control Bar ========== */
+#forecast-bar {
+    position: fixed;
+    right: calc(var(--list-w) + 12px);
+    bottom: 8px;
+    z-index: 95;
+    background: rgba(12, 14, 22, 0.90);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(0, 255, 204, 0.38);
+    border-radius: 9px;
+    padding: 4px 8px;
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.72), 0 0 12px rgba(0, 255, 204, 0.12);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    pointer-events: auto;
+    max-width: min(490px, calc(100vw - var(--list-w) - 360px));
+}
+.fc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    flex-wrap: nowrap;
+}
+.fc-title {
+    color: #00ffcc;
+    font-size: 9.5px;
+    font-weight: 800;
+    letter-spacing: 0.7px;
+    white-space: nowrap;
+}
+.fc-badge {
+    font-size: 9.5px;
+    font-family: monospace;
+    color: #ffbb33;
+    background: rgba(255, 187, 51, 0.12);
+    border: 1px solid rgba(255, 187, 51, 0.35);
+    border-radius: 4px;
+    padding: 0 5px;
+    line-height: 15px;
+    white-space: nowrap;
+}
+.fc-toggles {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: auto;
+}
+.fc-toggle, .fc-play, .fc-step {
+    width: auto;
+    height: auto;
+    margin: 0;
+    background: rgba(255, 255, 255, 0.06);
+    color: #aaa;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 9.5px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    line-height: 15px;
+}
+.fc-toggle:hover, .fc-play:hover, .fc-step:hover {
+    color: #fff;
+    border-color: rgba(0, 255, 204, 0.5);
+    background: rgba(0, 255, 204, 0.14);
+}
+.fc-toggle.active {
+    color: #00ffcc;
+    border-color: #00ffcc;
+    background: rgba(0, 255, 204, 0.16);
+}
+.fc-play.playing {
+    color: #ff5544;
+    border-color: #ff5544;
+    background: rgba(255, 85, 68, 0.18);
+}
+.fc-steps {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+}
+.fc-step.active {
+    color: #091018;
+    background: #00ffcc;
+    border-color: #00ffcc;
+    box-shadow: 0 0 8px rgba(0, 255, 204, 0.45);
+}
+.fc-step[data-horizon="100y"].active,
+.fc-step[data-horizon="10ky"].active,
+.fc-step[data-horizon="1My"].active,
+.fc-step[data-horizon="10My"].active {
+    background: #ffaa00;
+    border-color: #ffaa00;
+    color: #0a0c12;
+    box-shadow: 0 0 8px rgba(255, 170, 0, 0.5);
+}
+.fc-status {
+    font-size: 9px;
+    color: #9fb4c8;
+    line-height: 1.15;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+@media (max-width: 1120px) {
+    #forecast-bar {
+        left: 12px;
+        right: calc(var(--list-w) + 12px);
+        bottom: 60px;
+        max-width: none;
+    }
+}
+
 @media (max-width: 768px) {
     :root { --list-w: 130px; }
     #dashboard-strip .stat-row { font-size: 11px !important; }
     #list-container h3 { font-size: 10px; }
+    #forecast-bar {
+        bottom: 58px;
+        padding: 4px 7px;
+    }
+    .fc-status { display: none; }
 }

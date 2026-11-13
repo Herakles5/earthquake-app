@@ -279,8 +279,27 @@ def forecast(ev, main, idx_hi, T, plates_prior, opts):
                 tot = sum(field)
                 field = [(1 - mw) * f + mw * v * tot for f, v in zip(field, tr)]
 
-    # --- Omori / aftershock triggering
-    if opts.get('omori'):
+    # --- Omori / aftershock triggering (classic vs integral 21d ETAS)
+    if opts.get('omori21'):
+        trig = [0.0] * n
+        c_om, p_om, horiz = 0.05, 1.18, float(opts.get('horizon_days', 7.0))
+        i = idx_hi - 1
+        while i >= 0 and ev[i][0] > T - 21 * day:
+            t, m, la, lo = ev[i]
+            if m >= 5.0:
+                td = max(0.0, (T - t) / day)
+                integ = ((td + c_om) ** (1.0 - p_om) - (td + horiz + c_om) ** (1.0 - p_om)) / (p_om - 1.0)
+                w = (10 ** (0.85 * (m - 5.0))) * max(0.0, integ)
+                sig_o = min(220.0, max(75.0, 95.0 * (10 ** (0.25 * max(0.0, m - 5.0)))))
+                kernel_add(trig, la, lo, w, sigma=sig_o)
+            i -= 1
+        s = sum(trig)
+        if s > 0:
+            ew = float(opts.get('etas_w', 0.07))
+            trig = [v / s for v in trig]
+            base_s = sum(field) or 1.0
+            field = [(1.0 - ew) * (f / base_s) + ew * v for f, v in zip(field, trig)]
+    elif opts.get('omori'):
         trig = [0.0] * n
         i = idx_hi - 1
         while i >= 0 and ev[i][0] > T - 14 * day:
@@ -327,7 +346,14 @@ def run():
     print("plate segments:", len(plates))
     prior = plate_prior(plates)
 
-    if os.environ.get('VARIANTS') == 'markov':
+    if os.environ.get('VARIANTS') == 'etas':
+        variants = {
+            'BASE static 3y s250':       dict(static_only=True, win=1095, sigma=250),
+            'E04 3y + 4% Omori21d':      dict(static_only=True, win=1095, sigma=250, omori21=True, etas_w=0.04),
+            'E07 3y + 7% Omori21d':      dict(static_only=True, win=1095, sigma=250, omori21=True, etas_w=0.07),
+            'E06 4y + 6% Omori21d':      dict(static_only=True, win=1460, sigma=250, omori21=True, etas_w=0.06),
+        }
+    elif os.environ.get('VARIANTS') == 'markov':
         variants = {
             'BASE static 3y s250':             dict(static_only=True, win=1095, sigma=250),
             'S6 3y + 10% recent':              dict(win=1095, recent_share=0.1),

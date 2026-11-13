@@ -1,11 +1,12 @@
-const CACHE_NAME = 'eq-store-v21';
+const CACHE_NAME = 'eq-store-v22';
 const APP_SHELL = [
     './',
     './index.html',
     './app.js',
     './style.css',
     './coastlines.js',
-    './plates.js'
+    './plates.js',
+    './tectonic_model.js'
 ];
 
 self.addEventListener('install', (e) => {
@@ -47,6 +48,6 @@ self.addEventListener('fetch', (e) => {
                 }
                 return networkRes;
             })
-            .catch(() => caches.match(e.request))
+            .catch(() => caches.match(e.request, { ignoreSearch: true }))
     );
 });

@@ -82,7 +82,39 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 
 function calculateShockRadius(mag) {
     if (mag < 3) return 0;
-    return 100 * Math.pow(3, (mag - 3));
+    return Math.pow(10, 0.43 * mag);
+}
+
+function wrapLon(lon) {
+    return ((lon + 180.0) % 360.0 + 360.0) % 360.0 - 180.0;
+}
+
+function vec3FromLatLon(lat, lon) {
+    if (typeof TectonicModel !== 'undefined' && TectonicModel.ll2vec) {
+        return TectonicModel.ll2vec(lat, lon);
+    }
+    const p = lat * Math.PI / 180.0, l = lon * Math.PI / 180.0, cp = Math.cos(p);
+    return [cp * Math.cos(l), cp * Math.sin(l), Math.sin(p)];
+}
+
+function latLonFromVec3(x, y, z) {
+    if (typeof TectonicModel !== 'undefined' && TectonicModel.vec2ll) {
+        return TectonicModel.vec2ll(x, y, z);
+    }
+    const hyp = Math.hypot(x, y);
+    return [Math.atan2(z, hyp) * 180.0 / Math.PI, Math.atan2(y, x) * 180.0 / Math.PI];
+}
+
+function slerpBlendLatLon(lat1, lon1, lat2, lon2, w1 = 0.5) {
+    const v1 = vec3FromLatLon(lat1, lon1);
+    const v2 = vec3FromLatLon(lat2, lon2);
+    const w2 = 1.0 - w1;
+    const x = v1[0] * w1 + v2[0] * w2;
+    const y = v1[1] * w1 + v2[1] * w2;
+    const z = v1[2] * w1 + v2[2] * w2;
+    const n = Math.hypot(x, y, z);
+    if (n < 1e-12) return [lat1, wrapLon(lon1)];
+    return latLonFromVec3(x / n, y / n, z / n);
 }
 
 function formatDuration(ms, showSecs = true) {
@@ -191,53 +223,86 @@ function cleanPlaceName(rawPlace) {
 }
 
 // ========== Seismo-Tectonic Fault Projection & Kinematic Trajectory Engine ==========
-let predictedTectonicTargets = [];
+var predictedTectonicTargets = [];
+var forecastState = window.forecastState = {
+    horizonKey: '0',
+    horizonDays: 7,
+    horizonYears: 0,
+    showPlates: true,
+    showEtas: true,
+    isPlaying: false,
+    playTimer: null,
+    playStepIdx: 0,
+    playContinuousYears: 0,
+    etasCells: [],
+    seismicGaps: [],
+    plateVelSamples: null,
+    coastPlateCache: null,
+    driftCacheYears: -1,
+    driftedPlates: null,
+    driftedCoast: null
+};
 
 function snapToNearestPlateBoundary(lat, lon, maxSearchKm = 350) {
     if (typeof tectonic_plates === 'undefined' || !tectonic_plates || tectonic_plates.length === 0) {
-        return { lat: lat, lon: lon, distKm: 9999, snapped: false, strikeDeg: 0 };
+        return { lat: lat, lon: lon, distKm: 9999, snapped: false, strikeDeg: 0, segIdx: -1 };
     }
     let bestLat = lat;
     let bestLon = lon;
     let minDist = Infinity;
     let bestStrike = 0;
+    let bestSegIdx = -1;
+    const cLat = Math.max(0.18, Math.cos(lat * Math.PI / 180.0));
 
     for (let i = 0; i < tectonic_plates.length; i++) {
         let seg = tectonic_plates[i]; // [lon1, lat1, lon2, lat2]
         let lon1 = seg[0], lat1 = seg[1], lon2 = seg[2], lat2 = seg[3];
         if (Math.abs(lat1 - lat) > 8 && Math.abs(lat2 - lat) > 8) continue;
 
-        let dx = lon2 - lon1;
+        let dx = wrapLon(lon2 - lon1);
         let dy = lat2 - lat1;
-        if (Math.abs(dx) > 180) continue;
-        let len2 = dx * dx + dy * dy;
+        let qx = wrapLon(lon - lon1) * cLat;
+        let sx = dx * cLat;
+        let len2 = sx * sx + dy * dy;
         let t = 0.5;
         if (len2 > 1e-10) {
-            t = ((lon - lon1) * dx + (lat - lat1) * dy) / len2;
+            t = (qx * sx + (lat - lat1) * dy) / len2;
             t = Math.max(0.0, Math.min(1.0, t));
         }
-        let projLon = lon1 + t * dx;
+        let projLon = wrapLon(lon1 + t * dx);
         let projLat = lat1 + t * dy;
         let d = haversineDistance(lat, lon, projLat, projLon);
         if (d < minDist) {
             minDist = d;
             bestLat = projLat;
             bestLon = projLon;
-            bestStrike = (Math.atan2(dx * Math.cos(lat * Math.PI / 180.0), dy) * 180.0 / Math.PI + 360.0) % 360.0;
+            bestStrike = (Math.atan2(sx, dy) * 180.0 / Math.PI + 360.0) % 360.0;
+            bestSegIdx = i;
         }
     }
 
+    let meta = (bestSegIdx >= 0 && typeof TectonicModel !== 'undefined' && TectonicModel.segMeta)
+        ? TectonicModel.segMeta[bestSegIdx] : null;
+    let extra = meta ? {
+        segIdx: bestSegIdx,
+        regimeCode: meta[2],
+        relMmYr: meta[3],
+        convMmYr: meta[4],
+        platePair: `${TectonicModel.getPlateName(meta[0])} ⇄ ${TectonicModel.getPlateName(meta[1])}`
+    } : { segIdx: bestSegIdx };
+
     if (minDist <= maxSearchKm) {
-        // Blend 75% onto the exact tectonic fault line, 25% kinematic projection
+        let blended = slerpBlendLatLon(bestLat, bestLon, lat, lon, 0.75);
         return {
-            lat: 0.75 * bestLat + 0.25 * lat,
-            lon: 0.75 * bestLon + 0.25 * lon,
+            lat: blended[0],
+            lon: blended[1],
             distKm: Math.round(minDist),
             snapped: true,
-            strikeDeg: Math.round(bestStrike)
+            strikeDeg: Math.round(bestStrike),
+            ...extra
         };
     }
-    return { lat: lat, lon: lon, distKm: Math.round(minDist), snapped: false, strikeDeg: Math.round(bestStrike) };
+    return { lat: lat, lon: lon, distKm: Math.round(minDist), snapped: false, strikeDeg: Math.round(bestStrike), ...extra };
 }
 
 function classifyFocalRegime(eq) {
@@ -261,46 +326,59 @@ function classifyFocalRegime(eq) {
 
     let isRiftName = pLower.includes('ridge') || pLower.includes('rise') || pLower.includes('rift') || pLower.includes('reykjanes') || pLower.includes('iceland');
     let isSubductionName = pLower.includes('trench') || pLower.includes('kuril') || pLower.includes('mariana') || pLower.includes('tonga') || pLower.includes('kermadec') || pLower.includes('fiji') || pLower.includes('japan') || pLower.includes('bonin') || pLower.includes('vanuatu') || pLower.includes('solomon') || pLower.includes('chile') || pLower.includes('peru') || pLower.includes('alaska') || pLower.includes('aleutian') || pLower.includes('indonesia') || pLower.includes('philippine') || pLower.includes('kamchatka') || pLower.includes('taiwan');
+    let plateTag = snap.platePair ? ` [${snap.platePair}]` : '';
+    let hasMorvel = snap.snapped && snap.regimeCode !== undefined;
 
     if (depth >= 120.0) {
         return {
             type: 'slab',
-            label: 'Wadati-Benioff Intraslab (Downdip)',
+            label: `Wadati-Benioff Intraslab (Downdip)${plateTag}`,
             shortLabel: 'Slab Downdip',
             strike: strike,
             dip: 62,
             rake: -85,
-            updipBoost: 1.38
+            updipBoost: 1.38,
+            platePair: snap.platePair,
+            convMmYr: snap.convMmYr
         };
-    } else if (isRiftName && depth <= 25.0) {
+    } else if ((hasMorvel && snap.regimeCode === 2 && !hasSubductionSlab) || (isRiftName && depth <= 25.0)) {
+        let rateNote = (snap.relMmYr !== undefined) ? ` (${snap.relMmYr.toFixed(0)} mm/yr)` : '';
         return {
             type: 'normal',
-            label: 'Extensional Rift / Normal Fault',
+            label: `Extensional Rift / Normal${plateTag}${rateNote}`,
             shortLabel: 'Normal / Rift',
             strike: strike,
             dip: 55,
             rake: -90,
-            updipBoost: 1.05
+            updipBoost: 1.05,
+            platePair: snap.platePair,
+            convMmYr: snap.convMmYr
         };
-    } else if (hasSubductionSlab || isSubductionName || (depth >= 28.0 && depth < 120.0)) {
+    } else if ((hasMorvel && snap.regimeCode === 1) || hasSubductionSlab || isSubductionName || (depth >= 28.0 && depth < 120.0)) {
+        let convNote = (snap.convMmYr > 2) ? ` (+${snap.convMmYr.toFixed(0)} mm/yr)` : '';
         return {
             type: 'thrust',
-            label: 'Subduction Megathrust (Reverse)',
+            label: `Subduction Megathrust${plateTag}${convNote}`,
             shortLabel: 'Megathrust',
             strike: strike,
             dip: 24,
             rake: 90,
-            updipBoost: 1.28
+            updipBoost: 1.28,
+            platePair: snap.platePair,
+            convMmYr: snap.convMmYr
         };
     } else {
+        let shearNote = (snap.relMmYr !== undefined && snap.snapped) ? ` (${snap.relMmYr.toFixed(0)} mm/yr)` : '';
         return {
             type: 'strikeslip',
-            label: 'Transform Strike-Slip (Shear)',
+            label: `Transform Strike-Slip${plateTag}${shearNote}`,
             shortLabel: 'Strike-Slip',
             strike: strike,
             dip: 84,
             rake: 178,
-            updipBoost: 1.15
+            updipBoost: 1.15,
+            platePair: snap.platePair,
+            convMmYr: snap.convMmYr
         };
     }
 }
@@ -377,17 +455,20 @@ function getSpatialClusterRegion(eqList, limit, maxRadiusKm = 450) {
 
     // Sort cluster chronologically (oldest -> newest) to trace the tectonic movement sequence!
     let chron = bestCluster.slice().sort((a, b) => a.time - b.time);
-    let sumLat = 0, sumLon = 0, sumW = 0;
+    let vxSum = 0, vySum = 0, vzSum = 0;
     let strongest = chron[0];
     for (let eq of chron) {
         let w = Math.pow(10, 0.3 * (eq.mag - 3.0));
-        sumLat += eq.lat * w;
-        sumLon += eq.lon * w;
-        sumW += w;
+        let v = vec3FromLatLon(eq.lat, eq.lon);
+        vxSum += v[0] * w;
+        vySum += v[1] * w;
+        vzSum += v[2] * w;
         if (eq.mag > strongest.mag) strongest = eq;
     }
-    let centLat = sumW > 0 ? sumLat / sumW : bestSeed.lat;
-    let centLon = sumW > 0 ? sumLon / sumW : bestSeed.lon;
+    let vNorm = Math.hypot(vxSum, vySum, vzSum);
+    let [centLat, centLon] = vNorm > 1e-12
+        ? latLonFromVec3(vxSum / vNorm, vySum / vNorm, vzSum / vNorm)
+        : [bestSeed.lat, bestSeed.lon];
 
     // Calculate kinematic directional migration vector across the sequence (t_1 -> t_2 -> ... -> t_n)
     let latestEq = chron[chron.length - 1];
@@ -400,11 +481,8 @@ function getSpatialClusterRegion(eqList, limit, maxRadiusKm = 450) {
             let stepDist = haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon);
             if (stepDist < 2.0 || stepDist > maxRadiusKm) continue;
             let dLat = curr.lat - prev.lat;
-            let dLon = curr.lon - prev.lon;
-            if (dLon > 180) dLon -= 360;
-            if (dLon < -180) dLon += 360;
+            let dLon = wrapLon(curr.lon - prev.lon);
             let dDepth = (curr.depth || 10) - (prev.depth || 10);
-            // Newer steps in the chain carry higher momentum weight
             let wStep = Math.pow(1.6, k) * Math.pow(1.25, Math.max(0, curr.mag - 3.5));
             dLatTotal += dLat * wStep;
             dLonTotal += dLon * wStep;
@@ -418,7 +496,7 @@ function getSpatialClusterRegion(eqList, limit, maxRadiusKm = 450) {
         let stepDist = haversineDistance(prev.lat, prev.lon, curr.lat, curr.lon);
         if (stepDist <= 1200) {
             dLatTotal = (curr.lat - prev.lat) * 0.35;
-            dLonTotal = (curr.lon - prev.lon) * 0.35;
+            dLonTotal = wrapLon(curr.lon - prev.lon) * 0.35;
             stepWeightSum = 1.0;
         }
     }
@@ -430,18 +508,15 @@ function getSpatialClusterRegion(eqList, limit, maxRadiusKm = 450) {
         let meanStepLat = dLatTotal / stepWeightSum;
         let meanStepLon = dLonTotal / stepWeightSum;
         let meanStepDepth = dDepthTotal / stepWeightSum;
-        // Updip & focal-regime amplification: subduction slabs and updip sequences focus stress strongly ahead
         let updipBoost = (meanStepDepth < -5.0 ? 1.25 : 1.0) * (regimeInfo.updipBoost || 1.0);
         projLat = latestEq.lat + meanStepLat * 0.78 * updipBoost;
-        projLon = latestEq.lon + meanStepLon * 0.78 * updipBoost;
+        projLon = wrapLon(latestEq.lon + meanStepLon * 0.78 * updipBoost);
     } else {
-        projLat = 0.65 * latestEq.lat + 0.35 * centLat;
-        projLon = 0.65 * latestEq.lon + 0.35 * centLon;
+        [projLat, projLon] = slerpBlendLatLon(latestEq.lat, latestEq.lon, centLat, centLon, 0.65);
     }
 
     projLat = Math.max(-85.0, Math.min(85.0, projLat));
-    if (projLon > 180.0) projLon -= 360.0;
-    if (projLon < -180.0) projLon += 360.0;
+    projLon = wrapLon(projLon);
 
     // Couple/snap projected epicenter to the actual tectonic plate boundary in plates.js
     let snapped = snapToNearestPlateBoundary(projLat, projLon, 350);
@@ -483,27 +558,95 @@ function getSpatialClusterRegion(eqList, limit, maxRadiusKm = 450) {
     };
 }
 
-let currentBValue = { b: 1.0, sigma: 0, n: 0, avgMag: 0, status: 'Normal', color: '#00ffcc' };
+let currentBValue = { b: 1.0, sigma: 0, n: 0, avgMag: 0, mc: 3.0, status: 'Normal', color: '#00ffcc' };
 
 function computeBValue(eqList, minMag = 3.0) {
     if (!eqList || eqList.length === 0) {
-        return { b: 1.0, sigma: 0, n: 0, avgMag: 0, status: 'Normal', color: '#00ffcc' };
+        return { b: 1.0, sigma: 0, n: 0, avgMag: 0, mc: minMag, status: 'Normal', color: '#00ffcc' };
     }
-    let valid = eqList.filter(eq => eq.mag !== undefined && eq.mag !== null && eq.mag >= minMag);
-    if (valid.length < 5) {
-        return { b: 1.0, sigma: 0, n: valid.length, avgMag: 0, status: 'Calculating...', color: '#888888' };
+    let raw = eqList.filter(eq => eq.mag !== undefined && eq.mag !== null && eq.mag >= minMag);
+    if (raw.length < 5) {
+        return { b: 1.0, sigma: 0, n: raw.length, avgMag: 0, mc: minMag, status: 'Calculating...', color: '#888888' };
     }
+
+    // Wiemer & Wyss (2000) Max-Curvature baseline + Goodness-of-Fit (GFT >= 90%) calibration
+    // Handles bimodal catalogs (dense US/EU M2.5-3.3 regional + global M4.2+ teleseismic).
+    let mc = minMag;
+    let mcMethod = 'Fixed Mc';
+    if (raw.length >= 25) {
+        let bins = {};
+        let maxRawMag = minMag;
+        for (let eq of raw) {
+            if (eq.mag > maxRawMag) maxRawMag = eq.mag;
+            let bKey = Math.round(eq.mag * 10) / 10;
+            bins[bKey] = (bins[bKey] || 0) + 1;
+        }
+        let bestBin = minMag, bestCnt = -1;
+        for (let k of Object.keys(bins).sort((a, b) => parseFloat(a) - parseFloat(b))) {
+            if (bins[k] > bestCnt) {
+                bestCnt = bins[k];
+                bestBin = parseFloat(k);
+            }
+        }
+        let maxcMc = Math.min(4.8, Math.max(minMag, Number((bestBin + 0.2).toFixed(1))));
+        let aboveMaxc = raw.filter(eq => eq.mag >= maxcMc - 1e-6);
+        if (aboveMaxc.length >= 12) {
+            mc = maxcMc;
+            mcMethod = 'Max-Curvature';
+        }
+
+        if (raw.length >= 30) {
+            let bestR = -1.0, bestRMc = mc;
+            let upperMc = Math.min(4.7, Number((maxRawMag - 0.5).toFixed(1)));
+            for (let cand = mc; cand <= upperMc + 1e-6; cand = Number((cand + 0.1).toFixed(1))) {
+                let sub = raw.filter(eq => eq.mag >= cand - 1e-6);
+                if (sub.length < 18) break;
+                let sSum = 0;
+                for (let eq of sub) sSum += eq.mag;
+                let sMean = sSum / sub.length;
+                let sDenom = Math.max(0.05, sMean - (cand - 0.05));
+                let bCand = Math.LOG10E / sDenom;
+                let aCand = Math.log10(sub.length) + bCand * cand;
+                let numErr = 0, denObs = 0;
+                for (let m = cand; m <= maxRawMag + 1e-6; m = Number((m + 0.1).toFixed(1))) {
+                    let nObs = 0;
+                    for (let eq of sub) if (eq.mag >= m - 1e-6) nObs++;
+                    let nPred = Math.pow(10, aCand - bCand * m);
+                    numErr += Math.abs(nObs - nPred);
+                    denObs += nObs;
+                }
+                let rFit = denObs > 0 ? (1.0 - numErr / denObs) : 0;
+                if (rFit > bestR) {
+                    bestR = rFit;
+                    bestRMc = cand;
+                }
+                if (rFit >= 0.90) {
+                    mc = cand;
+                    mcMethod = `GFT ${(rFit * 100).toFixed(0)}%`;
+                    break;
+                }
+            }
+            if (!mcMethod.startsWith('GFT') && bestR >= 0.85) {
+                mc = bestRMc;
+                mcMethod = `GFT ${(bestR * 100).toFixed(0)}%`;
+            }
+        }
+    }
+
+    let valid = raw.filter(eq => eq.mag >= mc - 1e-6);
+    if (valid.length < 5) valid = raw;
+
     let sumMag = 0;
     for (let eq of valid) sumMag += eq.mag;
     let meanMag = sumMag / valid.length;
     let deltaM = 0.1;
-    let denom = meanMag - (minMag - deltaM / 2.0);
-    if (denom <= 0.01) denom = 0.01;
-    
-    // Aki (1965) / Utsu (1966) MLE formula:
+    let denom = meanMag - (mc - deltaM / 2.0);
+    if (denom <= 0.05) denom = 0.05;
+
+    // Aki (1965) / Utsu (1966) MLE formula
     let b = Math.LOG10E / denom;
     let sigma = b / Math.sqrt(valid.length);
-    
+
     let status = "Normal";
     let color = "#88ff88";
     if (b >= 1.15) {
@@ -519,12 +662,14 @@ function computeBValue(eqList, minMag = 3.0) {
         status = "High Stress (Locked)";
         color = "#ff3333";
     }
-    
+
     return {
         b: b,
         sigma: sigma,
         n: valid.length,
         avgMag: meanMag,
+        mc: mc,
+        mcMethod: mcMethod,
         status: status,
         color: color
     };
@@ -779,7 +924,11 @@ function gaiaStatsFor(eqsNewestFirst, declusterIt) {
     let lt = getLunarTidalStress();
     let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0);
     let effGap = rawGap / totalMult;
-    let last = eqsNewestFirst[0];
+    let sigma = stdDev(gaps);
+    let cv = rawGap > 0 ? (sigma / rawGap) : 0.7;
+    // Empirical Weibull/BPT shape k ≈ 1 / CV (clamped physically 1.05..3.2 when n>=5)
+    let shapeK = gaps.length >= 4 ? Math.min(3.2, Math.max(1.05, 1.0 / Math.max(0.32, cv))) : 1.6;
+    let last = declusterIt ? list[0] : eqsNewestFirst[0];
     let p50Gap = Math.round(Math.LN2 * effGap);
     let p90Gap = Math.round(2.302585 * effGap);
     return {
@@ -787,7 +936,7 @@ function gaiaStatsFor(eqsNewestFirst, declusterIt) {
         p50Gap: p50Gap, p90Gap: p90Gap,
         p50Time: last.time + p50Gap,
         p90Time: last.time + p90Gap,
-        sigma: stdDev(gaps), lastEq: last,
+        sigma: sigma, cv: cv, shapeK: shapeK, lastEq: last,
         nextTime: last.time + effGap
     };
 }
@@ -869,7 +1018,7 @@ function updatePrediction() {
                 let bptStr = "";
                 if (stat && stat.effGap && stat.lastEq) {
                     let elapsed = Math.max(0, Date.now() - stat.lastEq.time);
-                    let bpt = calculateBPTStrain(elapsed, stat.effGap);
+                    let bpt = calculateBPTStrain(elapsed, stat.effGap, stat.shapeK || 1.6);
                     if (bpt.strain > 1.05) {
                         bptStr = ` · BPT ${bpt.strain.toFixed(1)}x`;
                     }
@@ -920,10 +1069,10 @@ function updatePrediction() {
             let elapsed = stat.lastEq ? Math.max(0, Date.now() - stat.lastEq.time) : 0;
             let pElapsed = Math.min(99.9, (1 - Math.exp(-elapsed / stat.effGap)) * 100);
             if (elapsed > stat.effGap) {
-                let bpt = calculateBPTStrain(elapsed, stat.effGap);
+                let bpt = calculateBPTStrain(elapsed, stat.effGap, stat.shapeK || 1.6);
                 el.textContent = `P50: ~${p50Str} · BPT: ${bpt.strain.toFixed(1)}x (${(bpt.pCond1h * 100).toFixed(0)}%/h)`;
                 el.style.color = '#ff6666';
-                el.title = `Poisson Interval: P50 ~${p50Str}, P90 ~${p90Str}.\n⚠️ OVERDUE (BPT/Weibull Model):\nAccumulated Strain Factor: ${bpt.strain.toFixed(2)}x\nConditional Hazard Rate: ${(bpt.pCond1h * 100).toFixed(1)}%/h\nClick for formula details.`;
+                el.title = `Poisson Interval: P50 ~${p50Str}, P90 ~${p90Str}.\n⚠️ OVERDUE (BPT/Weibull k=${(stat.shapeK || 1.6).toFixed(2)}):\nAccumulated Strain Factor: ${bpt.strain.toFixed(2)}x\nConditional Hazard Rate: ${(bpt.pCond1h * 100).toFixed(1)}%/h\nClick for formula details.`;
             } else {
                 el.textContent = `P50: ~${p50Str} · P90: ~${p90Str}`;
                 el.style.color = '';
@@ -969,7 +1118,7 @@ function updatePrediction() {
             let curP = Math.min(99.9, (1 - Math.exp(-elapsed / stat.effGap)) * 100);
             let bptNote = "";
             if (elapsed > stat.effGap) {
-                let bpt = calculateBPTStrain(elapsed, stat.effGap);
+                let bpt = calculateBPTStrain(elapsed, stat.effGap, stat.shapeK || 1.6);
                 bptNote = `\n⚠️ BPT-Strain: ${bpt.strain.toFixed(2)}x (+${(bpt.pCond1h * 100).toFixed(1)}%/h)`;
             }
             el.title = `${label}: Expected in ~${formatDuration(stat.effGap, false)} (P50: ~${formatDuration(stat.p50Gap, false)}, P90: ~${formatDuration(stat.p90Gap, false)}).\nCurrent Probability: ${curP.toFixed(1)}% | Gaia: ${gaiaChargeMultiplier.toFixed(2)}x${bptNote}\n(Click for details)`;
@@ -1133,10 +1282,19 @@ function resize() {
         if (sb > 0) document.documentElement.style.setProperty('--strip-h', Math.ceil(sb) + 'px');
     }
     let r = canvas.getBoundingClientRect();
-    width = Math.max(100, Math.round(r.width || window.innerWidth));
-    height = Math.max(100, Math.round(r.height || window.innerHeight));
-    canvas.width = width;
-    canvas.height = height;
+    let nextW = Math.max(100, Math.round(r.width || window.innerWidth));
+    let nextH = Math.max(100, Math.round(r.height || window.innerHeight));
+    if (canvas.width !== nextW || canvas.height !== nextH || width !== nextW || height !== nextH) {
+        width = nextW;
+        height = nextH;
+        canvas.width = width;
+        canvas.height = height;
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => {
+                if (typeof draw === 'function' && typeof earthquakes !== 'undefined') draw();
+            });
+        }
+    }
 }
 window.addEventListener('resize', resize);
 if (typeof ResizeObserver !== 'undefined') {
@@ -1153,15 +1311,16 @@ function extractNoaaKp(entry) {
 }
 
 function computeGaiaChargeFromKp(effKp) {
+    // Bayesian shrinkage range (0.98x..1.10x) validated against permutation testing (gaia_collector.py / analyze_gaia_v2.py)
     let k = Math.max(0, Math.min(9.0, effKp));
     if (k <= 2.0) {
-        return 0.98 + (k / 2.0) * 0.02;                // Kp 0..2 -> 0.98x .. 1.00x (quiet baseline at Kp 2.0)
+        return 0.98 + (k / 2.0) * 0.02;                // Kp 0..2 -> 0.98x .. 1.00x
     } else if (k <= 4.0) {
-        return 1.00 + ((k - 2.0) / 2.0) * 0.05;        // Kp 2..4 -> 1.00x .. 1.05x (active / elevated)
+        return 1.00 + ((k - 2.0) / 2.0) * 0.02;        // Kp 2..4 -> 1.00x .. 1.02x
     } else if (k <= 5.0) {
-        return 1.05 + (k - 4.0) * 0.05;                // Kp 4..5 -> 1.05x .. 1.10x (G1 storm threshold)
+        return 1.02 + (k - 4.0) * 0.02;                // Kp 4..5 -> 1.02x .. 1.04x
     } else {
-        return 1.10 + ((k - 5.0) / 4.0) * 0.25;        // Kp 5..9 -> 1.10x .. 1.35x (G1..G5 geomagnetic storm)
+        return 1.04 + ((k - 5.0) / 4.0) * 0.06;        // Kp 5..9 -> 1.04x .. 1.10x
     }
 }
 
@@ -1419,26 +1578,38 @@ async function fetchEarthquakes() {
             predictedNextTime = shortTermStat ? shortTermStat.nextTime : 0;
         }
         
-        // Calculate Hemisphere Stats (24H)
-        let nw = earthquakes.filter(eq => eq.lat >= 0 && eq.lon < 0);
-        let ne = earthquakes.filter(eq => eq.lat >= 0 && eq.lon >= 0);
-        let sw = earthquakes.filter(eq => eq.lat < 0 && eq.lon < 0);
-        let se = earthquakes.filter(eq => eq.lat < 0 && eq.lon >= 0);
+        // Calculate Hemisphere Energy & Event Split (24H): E = 10^(1.5*M + 4.8) J
+        let nCnt = 0, sCnt = 0, eCnt = 0, wCnt = 0;
+        let nEng = 0, sEng = 0, eEng = 0, wEng = 0;
+        for (let i = 0; i < earthquakes.length; i++) {
+            let eq = earthquakes[i];
+            let eng = Math.pow(10, 1.5 * (eq.mag || 3.0) + 4.8);
+            if (eq.lat >= 0) { nCnt++; nEng += eng; } else { sCnt++; sEng += eng; }
+            if (eq.lon >= 0) { eCnt++; eEng += eng; } else { wCnt++; wEng += eng; }
+        }
         let nsElem = document.getElementById('stat-hemi-ns');
         let ewElem = document.getElementById('stat-hemi-ew');
         if (nsElem && ewElem) {
-            nsElem.textContent = `${nw.length + ne.length} vs ${sw.length + se.length}`;
-            ewElem.textContent = `${ne.length + se.length} vs ${nw.length + sw.length}`;
+            let nsTot = nEng + sEng || 1;
+            let ewTot = eEng + wEng || 1;
+            let nPct = Math.round((nEng / nsTot) * 100);
+            let ePct = Math.round((eEng / ewTot) * 100);
+            nsElem.textContent = `${nPct}% / ${100 - nPct}% (${nCnt}:${sCnt})`;
+            nsElem.title = `Seismic Energy E=10^(1.5M+4.8) J\nNorth: ${(nEng / 1e12).toFixed(2)} TJ (${nCnt} quakes)\nSouth: ${(sEng / 1e12).toFixed(2)} TJ (${sCnt} quakes)`;
+            ewElem.textContent = `${ePct}% / ${100 - ePct}% (${eCnt}:${wCnt})`;
+            ewElem.title = `Seismic Energy E=10^(1.5M+4.8) J\nEast: ${(eEng / 1e12).toFixed(2)} TJ (${eCnt} quakes)\nWest: ${(wEng / 1e12).toFixed(2)} TJ (${wCnt} quakes)`;
         }
-        
-        // Calculate Gutenberg-Richter b-Value (Crustal Stress State)
+
+        // Calculate Gutenberg-Richter b-Value (Crustal Stress State, auto-Mc calibrated)
         currentBValue = computeBValue(earthquakes, 3.0);
         let bEl = document.getElementById('stat-b-value');
         if (bEl) {
             if (currentBValue.n >= 5) {
                 bEl.textContent = `${currentBValue.b.toFixed(2)} (${currentBValue.status})`;
                 bEl.style.color = currentBValue.color;
-                bEl.title = `Gutenberg-Richter b-Value: ${currentBValue.b.toFixed(2)} ± ${currentBValue.sigma.toFixed(2)}\nAnalysis: ${currentBValue.n} quakes (M≥3.0, 24h)\nMean Magnitude: M${currentBValue.avgMag.toFixed(2)}\nStatus: ${currentBValue.status} (Click for details)`;
+                let mcVal = (currentBValue.mc !== undefined ? currentBValue.mc : 3.0).toFixed(1);
+                let mcTag = currentBValue.mcMethod || 'Max-Curvature';
+                bEl.title = `Gutenberg-Richter b-Value: ${currentBValue.b.toFixed(2)} ± ${currentBValue.sigma.toFixed(2)}\nCompleteness Mc: M${mcVal} (${mcTag})\nAnalysis: ${currentBValue.n} quakes (M≥${mcVal}, 24h)\nMean Magnitude: M${currentBValue.avgMag.toFixed(2)}\nStatus: ${currentBValue.status} (Click for details)`;
             } else {
                 bEl.textContent = 'Calculating...';
                 bEl.style.color = '#888888';
@@ -1459,8 +1630,11 @@ async function fetchEarthquakes() {
                 let n = document.getElementById('hotspot-' + (i + 1) + '-name');
                 if (!h || !n) continue;
                 let pre = activeDeepPrecursors.find(dp => dp.coupledHotspot && dp.coupledHotspot.name === h.name);
-                n.textContent = h.name + (pre ? " ⚡" : "");
+                let badges = (h.etas_active ? " 🔥" : "") + (pre ? " ⚡" : "");
+                n.textContent = h.name + badges;
                 if (pre) n.style.color = '#ffaa00';
+                else if (h.etas_active) n.style.color = '#ff7744';
+                else n.style.color = '';
             }
         }
 
@@ -1730,18 +1904,7 @@ async function fetchLongTermStats() {
         
         let stats7d = calculateStats(weekEqs);
         let stats30d = calculateStats(monthEqs);
-        
-        if (weekEqs.length > 0 && stats7d.avgMs > 0) predictedNextTime7d = weekEqs[0].time + stats7d.avgMs;
-        if (monthEqs.length > 0 && stats30d.avgMs > 0) predictedNextTime30d = monthEqs[0].time + stats30d.avgMs;
-        
-        if (stats7d.mag5AvgMs > 0) predictedNextTime7dMag5 = stats7d.mag5Last + stats7d.mag5AvgMs;
-        if (stats7d.mag7AvgMs > 0) predictedNextTime7dMag7 = stats7d.mag7Last + stats7d.mag7AvgMs;
-        if (stats7d.deepAvgMs > 0) predictedNextTime7dDeep = stats7d.deepLast + stats7d.deepAvgMs;
-        
-        if (stats30d.mag5AvgMs > 0) predictedNextTime30dMag5 = stats30d.mag5Last + stats30d.mag5AvgMs;
-        if (stats30d.mag7AvgMs > 0) predictedNextTime30dMag7 = stats30d.mag7Last + stats30d.mag7AvgMs;
-        if (stats30d.deepAvgMs > 0) predictedNextTime30dDeep = stats30d.deepLast + stats30d.deepAvgMs;
-        
+
         let updateText = (id, text) => {
             let el = document.getElementById(id);
             if (el) el.textContent = text;
@@ -1776,25 +1939,36 @@ setInterval(fetchLongTermStats, 3600000); // refresh every hour
 async function fetchHistoricalData() {
     let now = new Date();
     let nowStr = now.toISOString().split('T')[0];
-    
-    // M5+ last 365 days
-    let date1Yr = new Date(now.getTime() - 365 * 24 * 3600 * 1000).toISOString().split('T')[0];
+
+    // M5+ last 3 years (fetched in 3 yearly chunks to stay under USGS 20k cap & match ETAS 3y KDE)
     try {
-        let m5Url = `https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${date1Yr}&endtime=${nowStr}&minmagnitude=5.0`;
-        let m5Res = await fetch(m5Url);
-        let m5Data = await m5Res.json();
-        if (m5Data.features) {
-            historicalM5Eqs = m5Data.features.map(f => ({
-                id: f.id,
-                mag: f.properties.mag,
-                depth: f.geometry.coordinates[2],
-                place: f.properties.place,
-                lat: f.geometry.coordinates[1],
-                lon: f.geometry.coordinates[0],
-                time: f.properties.time
-            })).sort((a,b) => b.time - a.time);
+        let dayMs = 86400000;
+        let bounds = [3, 2, 1, 0].map(yr => new Date(now.getTime() - yr * 365 * dayMs).toISOString().split('T')[0]);
+        let chunks = await Promise.all([0, 1, 2].map(i =>
+            fetch(`https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${bounds[i]}&endtime=${bounds[i + 1]}&minmagnitude=5.0&limit=20000`)
+                .then(r => r.ok ? r.json() : null)
+                .catch(() => null)
+        ));
+        let byId = new Map();
+        chunks.forEach(d => {
+            if (!d || !d.features) return;
+            d.features.forEach(f => {
+                if (!f.properties || f.properties.mag === null || !f.geometry || !f.geometry.coordinates) return;
+                byId.set(f.id, {
+                    id: f.id,
+                    mag: f.properties.mag,
+                    depth: f.geometry.coordinates[2] || 0,
+                    place: f.properties.place,
+                    lat: f.geometry.coordinates[1],
+                    lon: f.geometry.coordinates[0],
+                    time: f.properties.time
+                });
+            });
+        });
+        if (byId.size > 0) {
+            historicalM5Eqs = Array.from(byId.values()).sort((a, b) => b.time - a.time);
         }
-    } catch(e) { console.error("Failed M5+", e); }
+    } catch(e) { console.error("Failed M5+ 3y:", e); }
     
     // M7+ last 5 years
     let date5Yr = new Date(now.getTime() - 5 * 365 * 24 * 3600 * 1000).toISOString().split('T')[0];
@@ -1930,8 +2104,30 @@ function drawGaiaDiagram() {
     gaiaCtx.lineWidth = 1;
     gaiaCtx.stroke();
     
-    // Trend line (moving average)
+    // Trend line (moving average) + cumulative Benioff strain overlay (sqrt(E))
     let sortedByTime = [...relevantEqs].sort((a, b) => a.time - b.time);
+    if (sortedByTime.length >= 2) {
+        let cumBenioff = 0;
+        let benioffPts = [];
+        for (let i = 0; i < sortedByTime.length; i++) {
+            let eq = sortedByTime[i];
+            cumBenioff += Math.sqrt(Math.pow(10, 1.5 * (eq.mag || 3.0) + 4.8));
+            benioffPts.push([eq.time, cumBenioff]);
+        }
+        let maxBen = cumBenioff || 1;
+        gaiaCtx.save();
+        gaiaCtx.beginPath();
+        for (let i = 0; i < benioffPts.length; i++) {
+            let x = padding + ((benioffPts[i][0] - cutoff) / timeSpan) * chartW;
+            let y = gaiaCanvas.height - 2 - (benioffPts[i][1] / maxBen) * (chartH * 0.92);
+            if (i === 0) gaiaCtx.moveTo(x, y);
+            else gaiaCtx.lineTo(x, y);
+        }
+        gaiaCtx.strokeStyle = 'rgba(0, 255, 204, 0.72)';
+        gaiaCtx.lineWidth = 1.6;
+        gaiaCtx.stroke();
+        gaiaCtx.restore();
+    }
     if (sortedByTime.length > 5) {
         gaiaCtx.beginPath();
         let windowSize = Math.max(3, Math.floor(sortedByTime.length / 8));
@@ -2213,13 +2409,15 @@ document.addEventListener('click', (e) => {
             ? computeBValue(globalMonthEqs, 4.0) 
             : null;
         
-        mathStr = 
-`• Method: Aki-Utsu Maximum Likelihood Estimator (MLE)
-• Dataset (24h): ${bVal.n} earthquakes (M ≥ 3.0)
-• Mean Magnitude M̄: M${bVal.avgMag.toFixed(2)}
+        let mc1 = (bVal.mc !== undefined ? bVal.mc : 3.0).toFixed(1);
+        let mc30 = (bMonth && bMonth.mc !== undefined ? bMonth.mc : 4.0).toFixed(1);
+        mathStr =
+`• Method: Aki-Utsu Maximum Likelihood Estimator (auto-Mc Max-Curvature)
+• Dataset (24h): ${bVal.n} earthquakes (M ≥ ${mc1})
+• Completeness Mc: M${mc1} | Mean Mag M̄: M${bVal.avgMag.toFixed(2)}
 • Current b-Value: ${bVal.b.toFixed(2)} ± ${bVal.sigma.toFixed(2)}
 • Stress State: ${bVal.status.toUpperCase()}
-` + (bMonth && bMonth.n > 20 ? `• 30-Day Reference (Global M≥4.0): b = ${bMonth.b.toFixed(2)} (${bMonth.n} quakes)\n` : '') +
+` + (bMonth && bMonth.n > 20 ? `• 30-Day Reference (M≥${mc30}): b = ${bMonth.b.toFixed(2)} (${bMonth.n} quakes)\n` : '') +
 `
 Interpretation:
   b ≥ 1.15 : Relaxed / Hydrothermal (Low major quake hazard)
@@ -2262,9 +2460,9 @@ The animated dashed vectors on the 3D map display the real-time path and directi
         
         let overdueBPTInfo = "";
         if (elapsed > statObj.effGap) {
-            let bpt = calculateBPTStrain(elapsed, statObj.effGap);
-            overdueBPTInfo = 
-`\n\n⚠️ BPT / WEIBULL OVERDUE ANALYSIS:
+            let bpt = calculateBPTStrain(elapsed, statObj.effGap, statObj.shapeK || 1.6);
+            overdueBPTInfo =
+`\n\n⚠️ BPT / WEIBULL OVERDUE ANALYSIS (k=${(statObj.shapeK || 1.6).toFixed(2)}, CV=${(statObj.cv || 0.7).toFixed(2)}):
 • Overdue: +${formatDur(elapsed - statObj.effGap)} (${bpt.r.toFixed(2)}x of expected interval)
 • Asperity Strain Factor: ${bpt.strain.toFixed(2)}x
 • Conditional Hazard Rate (next hour): ${(bpt.pCond1h * 100).toFixed(1)}%`;
@@ -2300,6 +2498,548 @@ Poisson Arrival Windows:
     calcPopup.classList.remove('hidden');
 });
 
+// ========== Predictive Tectonic Kinematics & ETAS Forecast Layers ==========
+function projectMapXY(lat, lon, mapCx, mapCy, scale) {
+    let r = ((90.0 - lat) / 180.0) * 723.0;
+    let a = lon * Math.PI / 180.0;
+    return [mapCx + (r * Math.sin(a)) * scale, mapCy + (r * Math.cos(a)) * scale];
+}
+
+function ensureCoastPlateCache() {
+    if (forecastState.coastPlateCache || typeof coast_lines === 'undefined' || typeof TectonicModel === 'undefined') return;
+    let cache = new Int16Array(coast_lines.length * 2);
+    for (let i = 0; i < coast_lines.length; i++) {
+        let l = coast_lines[i];
+        cache[i * 2] = TectonicModel.getPlateIdxAt(l[1], l[0]);
+        cache[i * 2 + 1] = TectonicModel.getPlateIdxAt(l[3], l[2]);
+    }
+    forecastState.coastPlateCache = cache;
+}
+
+function ensurePlateVelSamples() {
+    if (forecastState.plateVelSamples || typeof tectonic_plates === 'undefined' || typeof TectonicModel === 'undefined' || !TectonicModel.segMeta) return;
+    let samples = [];
+    for (let i = 0; i < tectonic_plates.length; i++) {
+        let m = TectonicModel.segMeta[i];
+        if (!m || m[3] < 18.0) continue;
+        let seg = tectonic_plates[i];
+        let midLat = 0.5 * (seg[1] + seg[3]);
+        let midLon = wrapLon(seg[0] + 0.5 * wrapLon(seg[2] - seg[0]));
+        if (Math.abs(midLat) > 74) continue;
+        if (!samples.every(s => haversineDistance(midLat, midLon, s.lat, s.lon) > 850.0)) continue;
+
+        let offsetSign = (m[2] === 2) ? -1 : 1;
+        let velA = TectonicModel.getVelocityAt(midLat, midLon, m[0]);
+        if (velA && velA.speedMmYr >= 10.0) {
+            samples.push({
+                lat: midLat, lon: midLon,
+                ve: velA.ve * offsetSign, vn: velA.vn * offsetSign,
+                speed: velA.speedMmYr, regime: m[2], plate: velA.plate
+            });
+        }
+    }
+    forecastState.plateVelSamples = samples;
+}
+
+const PLATE_DRIFT_ANCHORS = [
+    { code: 'NA',  lat: 44.0,  lon: -102.0 },
+    { code: 'SA',  lat: -14.0, lon: -58.0  },
+    { code: 'AFR', lat: 6.0,   lon: 20.0   },
+    { code: 'EUR', lat: 52.0,  lon: 68.0   },
+    { code: 'IND', lat: 21.0,  lon: 79.0   },
+    { code: 'AUS', lat: -24.0, lon: 134.0  },
+    { code: 'ARB', lat: 23.0,  lon: 45.0   },
+    { code: 'PAC', lat: -8.0,  lon: -148.0 },
+    { code: 'NAZ', lat: -18.0, lon: -92.0  },
+    { code: 'PH',  lat: 18.0,  lon: 131.0  },
+    { code: 'COC', lat: 9.0,   lon: -94.0  },
+    { code: 'ANT', lat: -78.0, lon: 40.0   }
+];
+
+function buildDriftCache(years) {
+    if (years <= 0 || typeof TectonicModel === 'undefined' || typeof tectonic_plates === 'undefined') {
+        forecastState.driftCacheYears = 0;
+        forecastState.driftedPlates = null;
+        forecastState.driftedCoast = null;
+        forecastState.driftAnchors = null;
+        return;
+    }
+    if (forecastState.driftCacheYears === years && forecastState.driftedPlates) return;
+
+    let pArr = new Float32Array(tectonic_plates.length * 4);
+    for (let i = 0; i < tectonic_plates.length; i++) {
+        let s = tectonic_plates[i];
+        let m = TectonicModel.segMeta ? TectonicModel.segMeta[i] : null;
+        let pIdx = m ? m[0] : TectonicModel.getPlateIdxAt(s[1], s[0]);
+        let [la1, lo1] = TectonicModel.rotateByPlate(s[1], s[0], pIdx, years);
+        let [la2, lo2] = TectonicModel.rotateByPlate(s[3], s[2], pIdx, years);
+        let baseIdx = i * 4;
+        pArr[baseIdx] = lo1; pArr[baseIdx + 1] = la1;
+        pArr[baseIdx + 2] = lo2; pArr[baseIdx + 3] = la2;
+    }
+    forecastState.driftedPlates = pArr;
+
+    if (typeof coast_lines !== 'undefined') {
+        ensureCoastPlateCache();
+        let cCache = forecastState.coastPlateCache;
+        let cArr = new Float32Array(coast_lines.length * 4);
+        for (let i = 0; i < coast_lines.length; i++) {
+            let l = coast_lines[i];
+            let p1 = cCache ? cCache[i * 2] : TectonicModel.getPlateIdxAt(l[1], l[0]);
+            let p2 = cCache ? cCache[i * 2 + 1] : TectonicModel.getPlateIdxAt(l[3], l[2]);
+            let [la1, lo1] = TectonicModel.rotateByPlate(l[1], l[0], p1, years);
+            let [la2, lo2] = TectonicModel.rotateByPlate(l[3], l[2], p2, years);
+            let b = i * 4;
+            if (p1 !== p2 && haversineDistance(la1, lo1, la2, lo2) > 420.0) {
+                cArr[b] = NaN;
+            } else {
+                cArr[b] = lo1; cArr[b + 1] = la1;
+                cArr[b + 2] = lo2; cArr[b + 3] = la2;
+            }
+        }
+        forecastState.driftedCoast = cArr;
+    }
+
+    let anchors = [];
+    for (let a of PLATE_DRIFT_ANCHORS) {
+        let pIdx = TectonicModel.getPlateIdxAt(a.lat, a.lon);
+        let [la2, lo2] = TectonicModel.rotateByPlate(a.lat, a.lon, pIdx, years);
+        let km = haversineDistance(a.lat, a.lon, la2, lo2);
+        anchors.push({ code: a.code, lat1: a.lat, lon1: a.lon, lat2: la2, lon2: lo2, km: Math.round(km) });
+    }
+    forecastState.driftAnchors = anchors;
+    forecastState.driftCacheYears = years;
+}
+
+const FORECAST_PRESETS = {
+    '0':    { days: 7, years: 0,        badge: 'LIVE · NNR-MORVEL56',   desc: 'NNR-MORVEL56 boundary physics active · Pick +24h…+30d for ETAS/Gaps or +100y…+10My for Euler drift' },
+    '1d':   { days: 1, years: 0,        badge: 'ETAS +24 HOURS',        desc: 'Short-term 24h ETAS probability field (c=0.05d, p=1.18) + locked Seismic Gaps' },
+    '7d':   { days: 7, years: 0,        badge: 'ETAS +7 DAYS',          desc: '7-day ETAS hybrid forecast (93% 3y mainshock KDE + 7% Omori) · Backtest hit: 16.8%' },
+    '30d':  { days: 30, years: 0,       badge: 'ETAS +30 DAYS',         desc: '30-day forward hazard accumulation + high-convergence Seismic Gaps (>=35 mm/yr)' },
+    '100y': { days: 0, years: 100,      badge: 'DRIFT +100 YEARS',      desc: 'Centennial plate shift (~9 m Pacific-Okhotsk convergence) + seismic strain accumulation' },
+    '10ky': { days: 0, years: 10000,    badge: 'DRIFT +10,000 YEARS',   desc: 'Holocene-scale fault offset (~0.9 km Japan Trench, ~0.5 km San Andreas)' },
+    '1My':  { days: 0, years: 1000000,  badge: 'DRIFT +1.0 Myr',        desc: '3D Rodrigues Euler-pole rotation at +1.0 Myr (~92 km subduction, ~25 km Atlantic widening)' },
+    '10My': { days: 0, years: 10000000, badge: 'DRIFT +10.0 Myr',       desc: 'Deep-time continental drift at +10.0 Myr (Pacific ~925 km NW, Australia ~630 km NNE)' }
+};
+
+function formatYearsBadge(yr) {
+    if (yr <= 0) return 'LIVE · NNR-MORVEL56';
+    if (yr < 1000) return `DRIFT +${Math.round(yr)} YEARS`;
+    if (yr < 1e6) return `DRIFT +${(yr / 1000).toFixed(yr >= 10000 ? 0 : 1)} kyr`;
+    return `DRIFT +${(yr / 1e6).toFixed(2)} Myr`;
+}
+
+function updateForecastUI() {
+    let preset = FORECAST_PRESETS[forecastState.horizonKey] || FORECAST_PRESETS['0'];
+    let badgeEl = document.getElementById('fc-hud-badge');
+    let statusEl = document.getElementById('fc-status-line');
+    if (badgeEl) {
+        badgeEl.textContent = forecastState.isPlaying && forecastState.horizonYears > 0
+            ? formatYearsBadge(forecastState.horizonYears)
+            : preset.badge;
+    }
+    if (statusEl) {
+        if (forecastState.horizonYears > 0) {
+            let pacShiftKm = Math.round(92.5 * forecastState.horizonYears / 1e6);
+            let pacShiftStr = pacShiftKm >= 1 ? `${pacShiftKm.toLocaleString()} km` : `${Math.round(92.5 * forecastState.horizonYears / 1000).toLocaleString()} m`;
+            statusEl.textContent = `Euler 3D drift: Japan Trench shift ~${pacShiftStr} (dashed = today, solid = future)`;
+        } else if (forecastState.horizonKey !== '0') {
+            let nCells = forecastState.etasCells ? forecastState.etasCells.length : 0;
+            let nGaps = forecastState.seismicGaps ? forecastState.seismicGaps.length : 0;
+            statusEl.textContent = `${preset.desc} (${nCells} hazard cells, ${nGaps} locked gaps)`;
+        } else {
+            statusEl.textContent = preset.desc;
+        }
+    }
+    document.querySelectorAll('#fc-steps .fc-step').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-horizon') === forecastState.horizonKey);
+    });
+    let btnPlates = document.getElementById('fc-btn-plates');
+    let btnEtas = document.getElementById('fc-btn-etas');
+    let btnPlay = document.getElementById('fc-btn-play');
+    if (btnPlates) btnPlates.classList.toggle('active', forecastState.showPlates);
+    if (btnEtas) btnEtas.classList.toggle('active', forecastState.showEtas);
+    if (btnPlay) {
+        btnPlay.classList.toggle('playing', forecastState.isPlaying);
+        btnPlay.textContent = forecastState.isPlaying ? '⏸' : '▶';
+    }
+}
+
+function setForecastHorizon(key) {
+    let preset = FORECAST_PRESETS[key] || FORECAST_PRESETS['0'];
+    forecastState.horizonKey = key;
+    forecastState.horizonDays = preset.days;
+    forecastState.horizonYears = preset.years;
+    if (preset.years > 0) {
+        buildDriftCache(preset.years);
+    } else if (preset.days > 0) {
+        loadHotspots();
+    }
+    updateForecastUI();
+}
+
+function stopForecastPlayback() {
+    forecastState.isPlaying = false;
+    if (forecastState.playTimer) {
+        clearInterval(forecastState.playTimer);
+        forecastState.playTimer = null;
+    }
+    updateForecastUI();
+}
+
+function startForecastPlayback() {
+    stopForecastPlayback();
+    forecastState.isPlaying = true;
+    let shortSeq = ['1d', '7d', '30d'];
+    let tickCount = 0;
+    let maxMyrTicks = 120;
+    if (forecastState.horizonYears > 0) tickCount = 24;
+
+    forecastState.playTimer = setInterval(() => {
+        tickCount++;
+        if (tickCount <= 24) {
+            let phaseIdx = Math.min(2, Math.floor((tickCount - 1) / 8));
+            let k = shortSeq[phaseIdx];
+            if (forecastState.horizonKey !== k) setForecastHorizon(k);
+        } else if (tickCount <= 24 + maxMyrTicks) {
+            let prog = (tickCount - 24) / maxMyrTicks;
+            // Smooth cubic ramp from 100 yr -> 10 Myr
+            let yrs = Math.round(100 + Math.pow(prog, 2.2) * 9999900);
+            forecastState.horizonKey = prog < 0.05 ? '100y' : (prog < 0.2 ? '10ky' : (prog < 0.55 ? '1My' : '10My'));
+            forecastState.horizonYears = yrs;
+            buildDriftCache(yrs);
+            updateForecastUI();
+        } else {
+            tickCount = 0;
+            setForecastHorizon('0');
+        }
+    }, 55);
+    updateForecastUI();
+}
+
+(function initForecastControls() {
+    let stepsEl = document.getElementById('fc-steps');
+    if (stepsEl) {
+        stepsEl.addEventListener('click', (e) => {
+            let btn = e.target.closest('.fc-step');
+            if (!btn) return;
+            stopForecastPlayback();
+            setForecastHorizon(btn.getAttribute('data-horizon'));
+        });
+    }
+    let btnPlates = document.getElementById('fc-btn-plates');
+    if (btnPlates) {
+        btnPlates.addEventListener('click', () => {
+            forecastState.showPlates = !forecastState.showPlates;
+            updateForecastUI();
+        });
+    }
+    let btnEtas = document.getElementById('fc-btn-etas');
+    if (btnEtas) {
+        btnEtas.addEventListener('click', () => {
+            forecastState.showEtas = !forecastState.showEtas;
+            updateForecastUI();
+        });
+    }
+    let btnPlay = document.getElementById('fc-btn-play');
+    if (btnPlay) {
+        btnPlay.addEventListener('click', () => {
+            if (forecastState.isPlaying) stopForecastPlayback();
+            else startForecastPlayback();
+        });
+    }
+    updateForecastUI();
+})();
+
+function strokeSegmentBatch(segmentsFloatOrPairs, isFlatFloat32, mapCx, mapCy, scale) {
+    ctx.beginPath();
+    if (isFlatFloat32) {
+        for (let i = 0; i < segmentsFloatOrPairs.length; i += 4) {
+            let lo1 = segmentsFloatOrPairs[i];
+            if (Number.isNaN(lo1)) continue;
+            let la1 = segmentsFloatOrPairs[i + 1];
+            let lo2 = segmentsFloatOrPairs[i + 2];
+            let la2 = segmentsFloatOrPairs[i + 3];
+            let [px1, py1] = projectMapXY(la1, lo1, mapCx, mapCy, scale);
+            let [px2, py2] = projectMapXY(la2, lo2, mapCx, mapCy, scale);
+            if ((px1 > -20 && px1 < width + 20 && py1 > -20 && py1 < height + 20) ||
+                (px2 > -20 && px2 < width + 20 && py2 > -20 && py2 < height + 20)) {
+                ctx.moveTo(px1, py1);
+                ctx.lineTo(px2, py2);
+            }
+        }
+    } else {
+        for (let i = 0; i < segmentsFloatOrPairs.length; i++) {
+            let l = segmentsFloatOrPairs[i];
+            let [px1, py1] = projectMapXY(l[1], l[0], mapCx, mapCy, scale);
+            let [px2, py2] = projectMapXY(l[3], l[2], mapCx, mapCy, scale);
+            if ((px1 > -20 && px1 < width + 20 && py1 > -20 && py1 < height + 20) ||
+                (px2 > -20 && px2 < width + 20 && py2 > -20 && py2 < height + 20)) {
+                ctx.moveTo(px1, py1);
+                ctx.lineTo(px2, py2);
+            }
+        }
+    }
+    ctx.stroke();
+}
+
+function drawPlateBoundariesLayer(mapCx, mapCy, scale) {
+    if (typeof tectonic_plates === 'undefined') return;
+    let hasModel = (typeof TectonicModel !== 'undefined' && TectonicModel.segMeta);
+    let years = forecastState.horizonYears || 0;
+
+    if (years > 0 && forecastState.driftedPlates) {
+        // Present-day reference boundaries dimly dashed
+        ctx.save();
+        ctx.strokeStyle = "rgba(180, 170, 200, 0.20)";
+        ctx.lineWidth = 0.85;
+        ctx.setLineDash([4, 4]);
+        strokeSegmentBatch(tectonic_plates, false, mapCx, mapCy, scale);
+        ctx.restore();
+
+        // Future drifted plate boundaries colored by kinematic regime
+        let dArr = forecastState.driftedPlates;
+        let styles = [
+            "rgba(255, 190, 60, 0.88)",  // 0: Transform
+            "rgba(255, 65, 85, 0.92)",   // 1: Convergent
+            "rgba(0, 235, 255, 0.88)"    // 2: Divergent
+        ];
+        ctx.lineWidth = 1.6;
+        for (let rc = 0; rc < 3; rc++) {
+            ctx.beginPath();
+            ctx.strokeStyle = styles[rc];
+            for (let i = 0; i < tectonic_plates.length; i++) {
+                let metaR = hasModel ? TectonicModel.segMeta[i][2] : 0;
+                if (metaR !== rc) continue;
+                let b = i * 4;
+                let [px1, py1] = projectMapXY(dArr[b + 1], dArr[b], mapCx, mapCy, scale);
+                let [px2, py2] = projectMapXY(dArr[b + 3], dArr[b + 2], mapCx, mapCy, scale);
+                if (Math.hypot(px2 - px1, py2 - py1) > 120 * scale) continue;
+                if ((px1 > -20 && px1 < width + 20 && py1 > -20 && py1 < height + 20) ||
+                    (px2 > -20 && px2 < width + 20 && py2 > -20 && py2 < height + 20)) {
+                    ctx.moveTo(px1, py1);
+                    ctx.lineTo(px2, py2);
+                }
+            }
+            ctx.stroke();
+        }
+        return;
+    }
+
+    if (forecastState.showPlates && hasModel) {
+        let styles = [
+            "rgba(255, 185, 50, 0.42)",  // 0: Transform
+            "rgba(255, 70, 90, 0.56)",   // 1: Convergent Subduction
+            "rgba(0, 220, 255, 0.48)"    // 2: Divergent Rift
+        ];
+        ctx.lineWidth = 1.25;
+        for (let rc = 0; rc < 3; rc++) {
+            ctx.beginPath();
+            ctx.strokeStyle = styles[rc];
+            for (let i = 0; i < tectonic_plates.length; i++) {
+                if (TectonicModel.segMeta[i][2] !== rc) continue;
+                let l = tectonic_plates[i];
+                let [px1, py1] = projectMapXY(l[1], l[0], mapCx, mapCy, scale);
+                let [px2, py2] = projectMapXY(l[3], l[2], mapCx, mapCy, scale);
+                if ((px1 > -20 && px1 < width + 20 && py1 > -20 && py1 < height + 20) ||
+                    (px2 > -20 && px2 < width + 20 && py2 > -20 && py2 < height + 20)) {
+                    ctx.moveTo(px1, py1);
+                    ctx.lineTo(px2, py2);
+                }
+            }
+            ctx.stroke();
+        }
+
+        // Draw sparse NNR-MORVEL56 velocity vectors
+        ensurePlateVelSamples();
+        let vs = forecastState.plateVelSamples;
+        if (vs && vs.length > 0 && zoom >= 0.6) {
+            ctx.save();
+            ctx.lineWidth = 1.2;
+            for (let i = 0; i < vs.length; i++) {
+                let s = vs[i];
+                let [px1, py1] = projectMapXY(s.lat, s.lon, mapCx, mapCy, scale);
+                if (px1 < 10 || px1 > width - 10 || py1 < 10 || py1 > height - 10) continue;
+                let cLat = Math.max(0.25, Math.cos(s.lat * Math.PI / 180.0));
+                let [pxRef, pyRef] = projectMapXY(s.lat + s.vn * 0.015, s.lon + (s.ve * 0.015) / cLat, mapCx, mapCy, scale);
+                let dx = pxRef - px1, dy = pyRef - py1;
+                let norm = Math.hypot(dx, dy);
+                if (norm < 1e-6) continue;
+                let arrowLen = Math.min(24, Math.max(9, (s.speed / 8.0) * Math.min(1.6, zoom)));
+                let px2 = px1 + (dx / norm) * arrowLen;
+                let py2 = py1 + (dy / norm) * arrowLen;
+                let col = s.regime === 1 ? "rgba(255, 95, 110, 0.78)" : (s.regime === 2 ? "rgba(0, 230, 255, 0.75)" : "rgba(255, 200, 70, 0.75)");
+                ctx.strokeStyle = col;
+                ctx.fillStyle = col;
+                ctx.beginPath();
+                ctx.moveTo(px1, py1);
+                ctx.lineTo(px2, py2);
+                ctx.stroke();
+                let ang = Math.atan2(py2 - py1, px2 - px1);
+                ctx.beginPath();
+                ctx.moveTo(px2, py2);
+                ctx.lineTo(px2 - 4.5 * Math.cos(ang - 0.5), py2 - 4.5 * Math.sin(ang - 0.5));
+                ctx.lineTo(px2 - 4.5 * Math.cos(ang + 0.5), py2 - 4.5 * Math.sin(ang + 0.5));
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+    } else {
+        ctx.strokeStyle = "rgba(255, 105, 180, 0.35)";
+        ctx.lineWidth = 1;
+        strokeSegmentBatch(tectonic_plates, false, mapCx, mapCy, scale);
+    }
+}
+
+function drawEtasForecastLayer(mapCx, mapCy, scale) {
+    if (!forecastState.showEtas || forecastState.horizonYears > 0) return;
+    let isForecastMode = forecastState.horizonKey !== '0';
+    let cells = forecastState.etasCells;
+    if (cells && cells.length > 0) {
+        let cellR = Math.max(8, 220.0 * 0.03618 * scale);
+        let alphaGain = isForecastMode ? 0.50 : 0.16;
+        ctx.save();
+        for (let i = 0; i < cells.length; i++) {
+            let [la, lo, normV, etasShare] = cells[i];
+            let [px, py] = projectMapXY(la, lo, mapCx, mapCy, scale);
+            if (px + cellR < 0 || px - cellR > width || py + cellR < 0 || py - cellR > height) continue;
+            let a = Math.min(0.65, normV * alphaGain);
+            let rCol = 255;
+            let gCol = etasShare > 0.12 ? 75 : Math.round(190 * (1.0 - normV * 0.65));
+            let bCol = etasShare > 0.12 ? 210 : 30;
+            let grad = ctx.createRadialGradient(px, py, 0, px, py, cellR * (0.7 + normV * 0.6));
+            grad.addColorStop(0, `rgba(${rCol}, ${gCol}, ${bCol}, ${a.toFixed(3)})`);
+            grad.addColorStop(1, `rgba(${rCol}, ${gCol}, ${bCol}, 0)`);
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(px, py, cellR * (0.7 + normV * 0.6), 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+
+    // Bilateral fault rupture corridor cones along strike for Top-5 ETAS hotspots
+    if (isForecastMode && cachedHotspotsData && cachedHotspotsData.length > 0) {
+        let corrR = Math.max(10, 260.0 * 0.03618 * scale);
+        ctx.save();
+        for (let i = 0; i < Math.min(5, cachedHotspotsData.length); i++) {
+            let h = cachedHotspotsData[i];
+            if (!h || h.strikeDeg === undefined) continue;
+            let [px, py] = projectMapXY(h.lat, h.lon, mapCx, mapCy, scale);
+            if (px + corrR < 0 || px - corrR > width || py + corrR < 0 || py - corrR > height) continue;
+            let stRad = (h.strikeDeg || 0) * Math.PI / 180.0;
+            let cLat = Math.max(0.25, Math.cos(h.lat * Math.PI / 180.0));
+            let [pxS, pyS] = projectMapXY(h.lat + 2.0 * Math.cos(stRad), h.lon + (2.0 * Math.sin(stRad)) / cLat, mapCx, mapCy, scale);
+            let scrAng = Math.atan2(pyS - py, pxS - px);
+            for (let dir = 0; dir < 2; dir++) {
+                let aCenter = scrAng + dir * Math.PI;
+                ctx.beginPath();
+                ctx.moveTo(px, py);
+                ctx.arc(px, py, corrR, aCenter - 0.30, aCenter + 0.30);
+                ctx.closePath();
+                ctx.fillStyle = h.etas_active ? "rgba(255, 85, 60, 0.16)" : "rgba(255, 195, 50, 0.11)";
+                ctx.fill();
+                ctx.strokeStyle = h.etas_active ? "rgba(255, 100, 70, 0.55)" : "rgba(255, 200, 60, 0.42)";
+                ctx.lineWidth = 1.0;
+                ctx.stroke();
+            }
+        }
+        ctx.restore();
+    }
+
+    // Active high-convergence Seismic Gaps (>= 35 mm/yr without recent M5.5+ rupture)
+    let gaps = forecastState.seismicGaps;
+    if (isForecastMode && gaps && gaps.length > 0) {
+        let pulseGap = 0.5 + 0.5 * Math.sin(Date.now() / 320.0);
+        let gapR = Math.max(7, 210.0 * 0.03618 * scale);
+        ctx.save();
+        for (let i = 0; i < gaps.length; i++) {
+            let g = gaps[i];
+            let [px, py] = projectMapXY(g.lat, g.lon, mapCx, mapCy, scale);
+            if (px + gapR < 0 || px - gapR > width || py + gapR < 0 || py - gapR > height) continue;
+            ctx.beginPath();
+            ctx.arc(px, py, gapR, 0, Math.PI * 2);
+            ctx.fillStyle = `rgba(255, 60, 140, ${(0.07 + 0.06 * pulseGap).toFixed(3)})`;
+            ctx.fill();
+            ctx.setLineDash([4, 3]);
+            ctx.strokeStyle = `rgba(255, 90, 180, ${(0.55 + 0.35 * pulseGap).toFixed(3)})`;
+            ctx.lineWidth = 1.4;
+            ctx.stroke();
+            if (zoom >= 0.85) {
+                ctx.setLineDash([]);
+                ctx.fillStyle = "rgba(255, 175, 220, 0.92)";
+                ctx.font = "bold 9px monospace";
+                ctx.textAlign = "center";
+                ctx.fillText(`GAP ${g.convMmYr}mm/y`, px, py - gapR - 3);
+            }
+        }
+        ctx.restore();
+    }
+}
+
+function drawCoastlinesLayer(mapCx, mapCy, scale) {
+    if (typeof coast_lines === 'undefined') return;
+    if (forecastState.horizonYears > 0 && forecastState.driftedCoast) {
+        // Faint present-day coastlines for visual continental displacement comparison
+        ctx.strokeStyle = "rgba(100, 180, 120, 0.28)";
+        ctx.lineWidth = 1.0;
+        strokeSegmentBatch(coast_lines, false, mapCx, mapCy, scale);
+
+        // Luminous drifted future coastlines
+        ctx.strokeStyle = "rgba(85, 255, 195, 0.94)";
+        ctx.lineWidth = 1.65;
+        strokeSegmentBatch(forecastState.driftedCoast, true, mapCx, mapCy, scale);
+
+        // Draw Rodrigues Euler plate displacement trajectories when motion is measurable
+        if (forecastState.driftAnchors && forecastState.horizonYears >= 10000) {
+            ctx.save();
+            ctx.font = "bold 9px monospace";
+            ctx.textAlign = "center";
+            for (let a of forecastState.driftAnchors) {
+                let [px1, py1] = projectMapXY(a.lat1, a.lon1, mapCx, mapCy, scale);
+                let [px2, py2] = projectMapXY(a.lat2, a.lon2, mapCx, mapCy, scale);
+                let pixLen = Math.hypot(px2 - px1, py2 - py1);
+                if (pixLen < 2.5 || pixLen > 160 * scale) continue;
+                if (px2 < -20 || px2 > width + 20 || py2 < -20 || py2 > height + 20) continue;
+
+                // Ensure minimum readable arrow span without falsifying direction
+                let dispLen = Math.max(pixLen, 10);
+                let ex = px1 + ((px2 - px1) / pixLen) * dispLen;
+                let ey = py1 + ((py2 - py1) / pixLen) * dispLen;
+                ctx.beginPath();
+                ctx.moveTo(px1, py1);
+                ctx.lineTo(ex, ey);
+                ctx.strokeStyle = "rgba(255, 195, 65, 0.92)";
+                ctx.lineWidth = 1.8;
+                ctx.stroke();
+
+                let ang = Math.atan2(ey - py1, ex - px1);
+                ctx.fillStyle = "rgba(255, 205, 80, 0.96)";
+                ctx.beginPath();
+                ctx.moveTo(ex, ey);
+                ctx.lineTo(ex - 5 * Math.cos(ang - 0.5), ey - 5 * Math.sin(ang - 0.5));
+                ctx.lineTo(ex - 5 * Math.cos(ang + 0.5), ey - 5 * Math.sin(ang + 0.5));
+                ctx.closePath();
+                ctx.fill();
+
+                if (forecastState.horizonYears >= 500000) {
+                    if (zoom >= 1.05 || (a.code !== 'COC' && a.code !== 'ARB' && a.code !== 'PH')) {
+                        let lbl = zoom >= 1.05 ? `${a.code} +${a.km}km` : a.code;
+                        ctx.fillStyle = "rgba(255, 220, 120, 0.92)";
+                        ctx.fillText(lbl, ex, ey - 5);
+                    }
+                }
+            }
+            ctx.restore();
+        }
+    } else {
+        ctx.strokeStyle = "rgba(120, 220, 120, 0.8)";
+        ctx.lineWidth = 1.5;
+        strokeSegmentBatch(coast_lines, false, mapCx, mapCy, scale);
+    }
+}
+
 function draw() {
     ctx.clearRect(0, 0, width, height);
     
@@ -2307,36 +3047,14 @@ function draw() {
     let mapCy = height / 2 + offsetY;
     let scale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
     
-    // Draw Tectonic Plates
-    if (typeof tectonic_plates !== 'undefined') {
-        ctx.beginPath();
-        ctx.strokeStyle = "rgba(255, 105, 180, 0.4)"; // Deep Pink, slightly transparent
-        ctx.lineWidth = 1;
-        for (let i = 0; i < tectonic_plates.length; i++) {
-            let l = tectonic_plates[i];
-            let r1 = ((90.0 - l[1]) / 180.0) * 723.0;
-            let a1 = l[0] * Math.PI / 180.0;
-            let px1 = mapCx + (r1 * Math.sin(a1)) * scale;
-            let py1 = mapCy + (r1 * Math.cos(a1)) * scale;
-            
-            let r2 = ((90.0 - l[3]) / 180.0) * 723.0;
-            let a2 = l[2] * Math.PI / 180.0;
-            let px2 = mapCx + (r2 * Math.sin(a2)) * scale;
-            let py2 = mapCy + (r2 * Math.cos(a2)) * scale;
-            
-            if ((px1 > 0 && px1 < width && py1 > 0 && py1 < height) || 
-                (px2 > 0 && px2 < width && py2 > 0 && py2 < height)) {
-                ctx.moveTo(px1, py1);
-                ctx.lineTo(px2, py2);
-            }
-        }
-        ctx.stroke();
-    }
+    drawEtasForecastLayer(mapCx, mapCy, scale);
+    drawPlateBoundariesLayer(mapCx, mapCy, scale);
     
     let now = Date.now();
+    let isDeepDrift = forecastState.horizonYears >= 10000;
 
-    // --- Draw Dynamic 300 km Hotspot Zones (from live/server Gaussian model) ---
-    if (cachedHotspotsData && cachedHotspotsData.length > 0) {
+    // --- Draw Dynamic 300 km Hotspot Zones (from live/server ETAS model) ---
+    if (!isDeepDrift && cachedHotspotsData && cachedHotspotsData.length > 0) {
         for (let i = 0; i < Math.min(cachedHotspotsData.length, 5); i++) {
             let h = cachedHotspotsData[i];
             let r = ((90.0 - h.lat) / 180.0) * 723.0;
@@ -2366,6 +3084,7 @@ function draw() {
         }
     }
     
+    if (!isDeepDrift) {
     // --- Draw Shock Zones (Radius) ---
     for (let i = 0; i < earthquakes.length; i++) {
         let eq = earthquakes[i];
@@ -2734,34 +3453,10 @@ function draw() {
             ctx.stroke();
         }
     }
+    } // end if (!isDeepDrift)
     
-    // Draw Coastlines ON TOP of earthquakes so islands are always visible
-    ctx.beginPath();
-    ctx.strokeStyle = "rgba(120, 220, 120, 0.8)"; // Brighter green and less transparent
-    ctx.lineWidth = 1.5; // Slightly thicker
-
-    // Coastlines now use [lon1, lat1, lon2, lat2] format - same projection as earthquakes
-    for (let i = 0; i < coast_lines.length; i++) {
-        let l = coast_lines[i];
-
-        // Same azimuthal equidistant projection as earthquakes and tectonic plates
-        let r1 = ((90.0 - l[1]) / 180.0) * 723.0;
-        let a1 = l[0] * Math.PI / 180.0;
-        let px1 = mapCx + (r1 * Math.sin(a1)) * scale;
-        let py1 = mapCy + (r1 * Math.cos(a1)) * scale;
-        
-        let r2 = ((90.0 - l[3]) / 180.0) * 723.0;
-        let a2 = l[2] * Math.PI / 180.0;
-        let px2 = mapCx + (r2 * Math.sin(a2)) * scale;
-        let py2 = mapCy + (r2 * Math.cos(a2)) * scale;
-        
-        if ((px1 > 0 && px1 < width && py1 > 0 && py1 < height) || 
-            (px2 > 0 && px2 < width && py2 > 0 && py2 < height)) {
-            ctx.moveTo(px1, py1);
-            ctx.lineTo(px2, py2);
-        }
-    }
-    ctx.stroke();
+    // Draw Coastlines ON TOP of earthquakes so islands (and future drifted continents) are crisp
+    drawCoastlinesLayer(mapCx, mapCy, scale);
     // Draw Autopilot Chain
     if (autopilotChain.length > 1 && autopilotIndex > 0) {
         ctx.beginPath();
@@ -3601,103 +4296,40 @@ function flyToCoords(lat, lon) {
 
 // Dynamic Hotspot Engine: computes Top-5 M5+ hotspots directly from the live USGS catalog
 // using Gardner-Knopoff declustering + 250 km Gaussian kernel + 300 km Poisson rate (zero hardcoded data).
-function computeDynamicHotspotsFromCatalog() {
-    let ds = gaiaDatasets();
-    let src = (ds && ds.m5 && ds.m5.length > 0) ? ds.m5.filter(e => e.mag >= 5.0) : [];
-    if (src.length < 10) return null;
-
-    let main = declusterGK(src);
-    let newestMs = main[0].time;
-    let oldestMs = main[main.length - 1].time;
-    let spanWeeks = Math.max(1.0, (newestMs - oldestMs) / (7 * 86400000));
-
-    let cellDeg = 4.0;
-    let sigmaKm = 250.0;
-    let radiusKm = 300.0;
-    let sepKm = 800.0;
-    let lats = [];
-    for (let la = -78; la <= 78; la += cellDeg) lats.push(la);
-    let lons = [];
-    for (let lo = -178; lo < 180; lo += cellDeg) lons.push(lo);
-
-    let nLon = lons.length;
-    let field = new Float64Array(lats.length * nLon);
-
-    for (let k = 0; k < main.length; k++) {
-        let ev = main[k];
-        // Recency weighting: recent M5+ mainshocks (last 30–90 days) boost emerging new hotspots immediately
-        let ageDays = Math.max(0, (newestMs - ev.time) / 86400000.0);
-        let recencyWeight = 1.0 + 1.25 * Math.exp(-ageDays / 45.0);
-        let magWeight = Math.pow(1.35, Math.max(0, ev.mag - 5.0));
-        let eventWeight = recencyWeight * magWeight;
-
-        let dlat = (3 * sigmaKm) / 111.0;
-        let dlon = dlat / Math.max(0.2, Math.cos(ev.lat * Math.PI / 180.0));
-        for (let i = 0; i < lats.length; i++) {
-            let cla = lats[i];
-            if (Math.abs(cla - ev.lat) > dlat) continue;
-            for (let j = 0; j < nLon; j++) {
-                let clo = lons[j];
-                let dl = Math.abs(clo - ev.lon);
-                if (dl > 180) dl = 360 - dl;
-                if (dl > dlon) continue;
-                let d = haversineDistance(ev.lat, ev.lon, cla, clo);
-                if (d < 3 * sigmaKm) {
-                    field[i * nLon + j] += eventWeight * Math.exp(-0.5 * (d / sigmaKm) * (d / sigmaKm));
-                }
+function addGaussianFieldJS(field, lats, lons, nLon, evLat, evLon, weight, sigmaKm) {
+    let dlat = (3 * sigmaKm) / 111.0;
+    let dlon = dlat / Math.max(0.2, Math.cos(evLat * Math.PI / 180.0));
+    for (let i = 0; i < lats.length; i++) {
+        let cla = lats[i];
+        if (Math.abs(cla - evLat) > dlat) continue;
+        for (let j = 0; j < nLon; j++) {
+            let clo = lons[j];
+            let dl = Math.abs(clo - evLon);
+            if (dl > 180) dl = 360 - dl;
+            if (dl > dlon) continue;
+            let d = haversineDistance(evLat, evLon, cla, clo);
+            if (d < 3 * sigmaKm) {
+                field[i * nLon + j] += weight * Math.exp(-0.5 * (d / sigmaKm) * (d / sigmaKm));
             }
         }
     }
+}
 
-    let indices = Array.from({ length: field.length }, (_, idx) => idx);
-    indices.sort((a, b) => field[b] - field[a]);
-
-    let tops = [];
-    for (let idx of indices) {
-        if (field[idx] <= 0) break;
-        let la = lats[Math.floor(idx / nLon)];
-        let lo = lons[idx % nLon];
-        let farEnough = true;
-        for (let t of tops) {
-            if (haversineDistance(la, lo, t[0], t[1]) <= sepKm) {
-                farEnough = false;
-                break;
-            }
-        }
-        if (farEnough) {
-            tops.push([la, lo]);
-            if (tops.length >= 5) break;
-        }
-    }
-
-    let hotspots = tops.map(([la, lo]) => {
-        let near = main.filter(e => haversineDistance(la, lo, e.lat, e.lon) <= radiusKm);
-        let rate = near.length / spanWeeks;
-        let p7 = 1.0 - Math.exp(-rate);
-        let nearest = main[0];
-        let minDist = Infinity;
-        for (let e of main) {
-            let d = haversineDistance(la, lo, e.lat, e.lon);
-            if (d < minDist) {
-                minDist = d;
-                nearest = e;
-            }
-        }
-function computeSeismicEntropyMetricsJS(nearEvents) {
-    if (!nearEvents || nearEvents.length === 0) {
+function computeSeismicEntropyMetricsJS(nearEventsChron) {
+    if (!nearEventsChron || nearEventsChron.length === 0) {
         return { entropy_bits: 0.0, dh_dt: 0.0, consensus_coherence: 0.5 };
     }
     let streamBytes = [];
-    let chunkSize = Math.max(3, Math.floor(nearEvents.length / 4));
-    for (let idx = 0; idx < nearEvents.length; idx++) {
-        let ev = nearEvents[idx];
+    let chunkSize = Math.max(3, Math.floor(nearEventsChron.length / 4));
+    for (let idx = 0; idx < nearEventsChron.length; idx++) {
+        let ev = nearEventsChron[idx];
         let magBin = Math.min(255, Math.max(0, Math.round((ev.mag - 4.5) * 25)));
         let dtBin = 128;
         if (idx > 0) {
-            let prevEv = nearEvents[idx - 1];
+            let prevEv = nearEventsChron[idx - 1];
             let currMs = (ev.time !== undefined) ? ev.time : (ev.t * 1000.0);
             let prevMs = (prevEv.time !== undefined) ? prevEv.time : (prevEv.t * 1000.0);
-            let dtDays = Math.max(0.01, Math.abs(currMs - prevMs) / 86400000.0);
+            let dtDays = Math.max(0.01, (currMs - prevMs) / 86400000.0);
             dtBin = Math.min(255, Math.max(0, Math.round(Math.log1p(dtDays) * 32)));
         }
         streamBytes.push(magBin, dtBin);
@@ -3740,8 +4372,189 @@ function computeSeismicEntropyMetricsJS(nearEvents) {
     return { entropy_bits: fullH, dh_dt: dhDt, consensus_coherence: coherence };
 }
 
-        // Trace recent chronological sequence inside this hotspot to project next fault rupture point
-        let recentChain = near.slice(-8);
+function computeSeismicGapsFromModel(mainshocksDesc, spanDays) {
+    if (typeof tectonic_plates === 'undefined' || typeof TectonicModel === 'undefined' || !TectonicModel.segMeta) {
+        return [];
+    }
+    let candidates = [];
+    let recentM55 = (mainshocksDesc || []).filter(e => e.mag >= 5.5);
+    for (let i = 0; i < tectonic_plates.length; i++) {
+        let m = TectonicModel.segMeta[i];
+        if (!m) continue;
+        // Convergent or high-slip shear zones (>= 38 mm/yr)
+        if (!(m[2] === 1 && m[4] >= 35.0) && m[3] < 55.0) continue;
+        let seg = tectonic_plates[i];
+        let midLat = 0.5 * (seg[1] + seg[3]);
+        let midLon = wrapLon(seg[0] + 0.5 * wrapLon(seg[2] - seg[0]));
+        if (Math.abs(midLat) > 72) continue;
+
+        let cnt = 0;
+        for (let k = 0; k < recentM55.length; k++) {
+            let eq = recentM55[k];
+            if (Math.abs(eq.lat - midLat) > 3.5) continue;
+            if (haversineDistance(midLat, midLon, eq.lat, eq.lon) <= 230.0) cnt++;
+        }
+        let rateScore = Math.max(m[4], m[3] * 0.75);
+        if ((cnt === 0 && rateScore >= 36.0) || (cnt <= 1 && rateScore >= 65.0)) {
+            candidates.push({
+                lat: midLat,
+                lon: midLon,
+                convMmYr: Math.round(rateScore),
+                relMmYr: Math.round(m[3]),
+                platePair: `${TectonicModel.getPlateName(m[0])} ⇄ ${TectonicModel.getPlateName(m[1])}`,
+                m55Count: cnt,
+                yearsObserved: Number((spanDays / 365.0).toFixed(1)),
+                gapScore: rateScore / (cnt + 0.5)
+            });
+        }
+    }
+    candidates.sort((a, b) => b.gapScore - a.gapScore);
+    let selected = [];
+    for (let c of candidates) {
+        if (selected.every(s => haversineDistance(c.lat, c.lon, s.lat, s.lon) > 650.0)) {
+            selected.push(c);
+            if (selected.length >= 10) break;
+        }
+    }
+    return selected;
+}
+
+// Dynamic ETAS Hybrid Hotspot Engine (backtest-validated 93% 3y mainshock KDE + 7% 21d Omori trigger)
+function computeDynamicHotspotsFromCatalog(overrideHorizonDays) {
+    let ds = gaiaDatasets();
+    let src = (ds && ds.m5 && ds.m5.length > 0) ? ds.m5.filter(e => e.mag >= 5.0) : [];
+    if (src.length < 10) return null;
+
+    let main = declusterGK(src);
+    if (main.length < 3) return null;
+    let nowMs = Date.now();
+    let newestMs = main[0].time;
+    let oldestMs = main[main.length - 1].time;
+    let spanDays = Math.max(7.0, (newestMs - oldestMs) / 86400000.0);
+    let spanWeeks = Math.max(1.0, spanDays / 7.0);
+    let hDays = overrideHorizonDays || ((forecastState.horizonYears === 0 && forecastState.horizonDays > 0) ? forecastState.horizonDays : 7.0);
+    let hWeeks = hDays / 7.0;
+
+    let cellDeg = 4.0;
+    let sigmaKm = 250.0;
+    let radiusKm = 300.0;
+    let sepKm = 800.0;
+    let lats = [];
+    for (let la = -78; la <= 78; la += cellDeg) lats.push(la);
+    let lons = [];
+    for (let lo = -178; lo < 180; lo += cellDeg) lons.push(lo);
+
+    let nLon = lons.length;
+    let muField = new Float64Array(lats.length * nLon);
+    let trigField = new Float64Array(lats.length * nLon);
+
+    for (let k = 0; k < main.length; k++) {
+        let ev = main[k];
+        addGaussianFieldJS(muField, lats, lons, nLon, ev.lat, ev.lon, 1.0, sigmaKm);
+    }
+    let muTotal = 0;
+    for (let i = 0; i < muField.length; i++) muTotal += muField[i];
+    if (muTotal > 0) {
+        for (let i = 0; i < muField.length; i++) muField[i] /= muTotal;
+    }
+
+    // 21-day Omori-Utsu short-term triggering kernel (c = 0.05d, p = 1.18, K = 0.055)
+    let recentOmori = [];
+    let cutoffOmori = nowMs - 21.0 * 86400000.0;
+    for (let k = 0; k < src.length; k++) {
+        let ev = src[k];
+        if (ev.time < cutoffOmori) break; // src is sorted newest-first
+        let dt = Math.max(0.0, (nowMs - ev.time) / 86400000.0);
+        let integ = (Math.pow(dt + 0.05, -0.18) - Math.pow(dt + hDays + 0.05, -0.18)) / 0.18;
+        let wOm = Math.pow(10, 0.85 * (ev.mag - 5.0)) * Math.max(0.0, integ);
+        if (wOm <= 0) continue;
+        let sigO = Math.min(220.0, Math.max(75.0, 95.0 * Math.pow(10, 0.25 * Math.max(0.0, ev.mag - 5.0))));
+        recentOmori.push({ lat: ev.lat, lon: ev.lon, w: wOm, sig: sigO });
+        addGaussianFieldJS(trigField, lats, lons, nLon, ev.lat, ev.lon, wOm, sigO);
+    }
+
+    let trigTotal = 0;
+    for (let i = 0; i < trigField.length; i++) trigTotal += trigField[i];
+    let field = new Float64Array(muField.length);
+    let trigNorm = new Float64Array(muField.length);
+    if (trigTotal > 0) {
+        for (let i = 0; i < trigField.length; i++) {
+            trigNorm[i] = trigField[i] / trigTotal;
+            field[i] = 0.93 * muField[i] + 0.07 * trigNorm[i];
+        }
+    } else {
+        field.set(muField);
+    }
+
+    let peak = 0;
+    for (let i = 0; i < field.length; i++) {
+        if (field[i] > peak) peak = field[i];
+    }
+    let cells = [];
+    if (peak > 0) {
+        for (let i = 0; i < lats.length; i++) {
+            for (let j = 0; j < nLon; j++) {
+                let idx = i * nLon + j;
+                let normV = field[idx] / peak;
+                if (normV >= 0.05) {
+                    let share = trigTotal > 0 ? (0.07 * trigNorm[idx]) / Math.max(1e-12, field[idx]) : 0;
+                    cells.push([lats[i], lons[j], Number(normV.toFixed(3)), Number(share.toFixed(3))]);
+                }
+            }
+        }
+    }
+    forecastState.etasCells = cells;
+    forecastState.seismicGaps = computeSeismicGapsFromModel(main, spanDays);
+
+    let indices = Array.from({ length: field.length }, (_, idx) => idx);
+    indices.sort((a, b) => field[b] - field[a]);
+
+    let tops = [];
+    for (let idx of indices) {
+        if (field[idx] <= 0) break;
+        let la = lats[Math.floor(idx / nLon)];
+        let lo = lons[idx % nLon];
+        let farEnough = true;
+        for (let t of tops) {
+            if (haversineDistance(la, lo, t[0], t[1]) <= sepKm) {
+                farEnough = false;
+                break;
+            }
+        }
+        if (farEnough) {
+            tops.push([la, lo, idx]);
+            if (tops.length >= 5) break;
+        }
+    }
+
+    let hotspots = tops.map(([la, lo, idx]) => {
+        let near = main.filter(e => haversineDistance(la, lo, e.lat, e.lon) <= radiusKm);
+        let nearChron = near.slice().reverse(); // chronological oldest -> newest!
+        let rateBg = (near.length / spanWeeks) * hWeeks;
+        let pMain = 1.0 - Math.exp(-rateBg);
+        let rateEtas = 0;
+        for (let rIdx = 0; rIdx < recentOmori.length; rIdx++) {
+            let ro = recentOmori[rIdx];
+            let d = haversineDistance(la, lo, ro.lat, ro.lon);
+            if (d <= radiusKm) {
+                rateEtas += 0.055 * ro.w * Math.exp(-0.5 * Math.pow(d / Math.max(150.0, ro.sig), 2));
+            }
+        }
+        let pTotal = 1.0 - Math.exp(-(rateBg + rateEtas));
+        let etasShare = trigTotal > 0 ? (0.07 * trigNorm[idx]) / Math.max(1e-12, field[idx]) : 0;
+
+        let nearest = main[0];
+        let minDist = Infinity;
+        for (let e of main) {
+            let d = haversineDistance(la, lo, e.lat, e.lon);
+            if (d < minDist) {
+                minDist = d;
+                nearest = e;
+            }
+        }
+
+        // Chronological chain of NEWEST 8 mainshocks inside this hotspot
+        let recentChain = nearChron.slice(-8);
         let dLatH = 0.0, dLonH = 0.0, wSumH = 0.0;
         for (let k = 1; k < recentChain.length; k++) {
             let pEv = recentChain[k - 1];
@@ -3749,16 +4562,13 @@ function computeSeismicEntropyMetricsJS(nearEvents) {
             let dStep = haversineDistance(pEv.lat, pEv.lon, cEv.lat, cEv.lon);
             if (dStep >= 5.0 && dStep <= 300.0) {
                 let wS = Math.pow(1.4, k);
-                let dl = cEv.lon - pEv.lon;
-                if (dl > 180) dl -= 360;
-                if (dl < -180) dl += 360;
                 dLatH += (cEv.lat - pEv.lat) * wS;
-                dLonH += dl * wS;
+                dLonH += wrapLon(cEv.lon - pEv.lon) * wS;
                 wSumH += wS;
             }
         }
         let rawTargetLat = wSumH > 0 ? (la + (dLatH / wSumH) * 0.65) : la;
-        let rawTargetLon = wSumH > 0 ? (lo + (dLonH / wSumH) * 0.65) : lo;
+        let rawTargetLon = wSumH > 0 ? wrapLon(lo + (dLonH / wSumH) * 0.65) : lo;
         let snapH = snapToNearestPlateBoundary(rawTargetLat, rawTargetLon, 280);
         let finalHLat = Number(snapH.lat.toFixed(2));
         let finalHLon = Number(snapH.lon.toFixed(2));
@@ -3769,12 +4579,17 @@ function computeSeismicEntropyMetricsJS(nearEvents) {
             lon: finalHLon,
             gridLat: la,
             gridLon: lo,
+            strikeDeg: snapH.strikeDeg || 0,
+            platePair: snapH.platePair,
             shiftKm: shiftHKm,
             faultSnapped: snapH.snapped,
             name: resolveNearestPlaceName(finalHLat, finalHLon, cleanPlaceName(nearest.place)) || `${finalHLat.toFixed(0)}°, ${finalHLon.toFixed(0)}°`,
             n3y: near.length,
-            p7d: Number(p7.toFixed(3)),
-            ...computeSeismicEntropyMetricsJS(near)
+            p7d: Number(pTotal.toFixed(3)),
+            p7d_main: Number(pMain.toFixed(3)),
+            etas_boost: Number(etasShare.toFixed(3)),
+            etas_active: Boolean(etasShare >= 0.08 || rateEtas >= 0.05),
+            ...computeSeismicEntropyMetricsJS(nearChron)
         };
     });
 
@@ -3783,45 +4598,54 @@ function computeSeismicEntropyMetricsJS(nearEvents) {
 
     return {
         generated: new Date().toISOString(),
-        model: `dynamic live M5+ mainshock rate + tectonic fault trajectory (${main.length} mainshocks), sigma 250 km`,
+        model: `ETAS hybrid: 93% ${(spanDays / 365).toFixed(1)}y mainshock KDE + 7% 21d Omori (${main.length} mainshocks)`,
         events: src.length,
         mainshocks: main.length,
         backtest_hit_rate: empiricalHitRate,
-        hotspots: hotspots
+        hotspots: hotspots,
+        cells: cells
     };
 }
 
 async function loadHotspots() {
-    // 1. Always prioritize live dynamic calculation from the real-time USGS M5+ catalog
-    //    so newly emerging earthquake clusters immediately appear in the Top-5!
+    // 1. Prioritize live dynamic ETAS calculation from the real-time USGS M5+ catalog
     let data = computeDynamicHotspotsFromCatalog();
-    
-    // 2. Only fall back to precomputed hotspots.json during initial 1s boot before USGS responds (or if offline)
+
+    // 2. Fallback to precomputed hotspots.json during initial 1s boot before USGS responds (or offline)
     if (!data || !data.hotspots) {
         try {
             let res = await fetch('hotspots.json?t=' + Math.floor(Date.now() / 3600000));
             if (res.ok) data = await res.json();
         } catch (e) {
-            // file:/// protocol or local fetch blocked by browser CORS
+            // file:/// or offline
         }
     }
-    
-    // 3. Fallback to GitHub raw URL if local fetch also fails
+
+    // 3. Fallback to GitHub raw URL
     if (!data || !data.hotspots) {
         try {
             let res = await fetch('https://raw.githubusercontent.com/Herakles5/earthquake-app/main/hotspots.json');
             if (res.ok) data = await res.json();
         } catch (e) {
-            // offline or github blocked
+            // offline
         }
     }
     if (!data || !data.hotspots) return;
 
     try {
         cachedHotspotsData = data.hotspots;
+        if ((!forecastState.etasCells || forecastState.etasCells.length === 0) && Array.isArray(data.cells)) {
+            forecastState.etasCells = data.cells.map(c => [c[0], c[1], c[2], 0]);
+        }
         if (earthquakes && earthquakes.length > 0) {
             activeDeepPrecursors = detectDeepPrecursors(earthquakes, cachedHotspotsData);
         }
+        let hWinDays = (forecastState.horizonYears === 0 && forecastState.horizonDays > 0) ? forecastState.horizonDays : 7;
+        let cardHdr = document.querySelector('#hotspot-card h4');
+        if (cardHdr) {
+            cardHdr.textContent = `HOTSPOTS · M5+ · ETAS ${hWinDays === 1 ? '24H' : hWinDays + 'D'}`;
+        }
+
         let count = Math.min(data.hotspots.length, 5);
         for (let i = 0; i < count; i++) {
             let h = data.hotspots[i];
@@ -3829,22 +4653,30 @@ async function loadHotspots() {
             let n = document.getElementById('hotspot-' + (i + 1) + '-name');
             let p = document.getElementById('hotspot-' + (i + 1) + '-p');
             if (!h || !n || !p) continue;
-            
+
             let pre = activeDeepPrecursors.find(dp => dp.coupledHotspot && dp.coupledHotspot.name === h.name);
-            n.textContent = h.name + (pre ? " ⚡" : "");
+            let badges = (h.etas_active ? " 🔥" : "") + (pre ? " ⚡" : "");
+            n.textContent = h.name + badges;
             n.style.maxWidth = '130px';
             n.style.overflow = 'hidden';
             n.style.textOverflow = 'ellipsis';
-            let titleText = `${h.name} (${h.lat.toFixed(2)}°, ${h.lon.toFixed(2)}°)\n3-Year M5+ Mainshocks: ${h.n3y}\n7-Day Poisson Probability: ${(h.p7d * 100).toFixed(1)}%`;
+            let pMainStr = (typeof h.p7d_main === 'number') ? ` (Bg: ${(h.p7d_main * 100).toFixed(1)}%)` : '';
+            let etasStr = (h.etas_boost && h.etas_boost > 0.01) ? `\n🔥 ETAS Trigger Share: +${Math.round(h.etas_boost * 100)}%` : '';
+            let titleText = `${h.name} (${h.lat.toFixed(2)}°, ${h.lon.toFixed(2)}°)\nCatalog M5+ Mainshocks: ${h.n3y}\n${hWinDays}-Day Poisson Probability: ${(h.p7d * 100).toFixed(1)}%${pMainStr}${etasStr}`;
             if (h.shiftKm !== undefined) {
                 titleText += `\nTectonic Fault Projection: +${h.shiftKm} km along plate boundary${h.faultSnapped ? ' [Fault-Locked]' : ''}`;
+            }
+            if (h.platePair) {
+                titleText += `\nPlate Interface: ${h.platePair}`;
             }
             if (typeof h.entropy_bits === 'number') {
                 titleText += `\nSeismic Shannon Entropy: ${h.entropy_bits.toFixed(2)} bits (dH/dt: ${h.dh_dt >= 0 ? '+' : ''}${(h.dh_dt || 0).toFixed(4)} | Coherence: ${Math.round((h.consensus_coherence || 0.9) * 100)}%)`;
             }
             if (pre) {
-                titleText += `\n⚡ DEEP MANTLE PRECURSOR: M${pre.deep.mag.toFixed(1)} at ${Math.round(pre.deep.depth)} km depth (${pre.distKm} km distance, ${pre.ageDays}d ago). Viscoelastic shear stress transfer active!`;
+                titleText += `\n⚡ DEEP MANTLE PRECURSOR: M${pre.deep.mag.toFixed(1)} at ${Math.round(pre.deep.depth)} km depth (${pre.distKm} km distance, ${pre.ageDays}d ago).`;
                 n.style.color = '#ffaa00';
+            } else if (h.etas_active) {
+                n.style.color = '#ff7744';
             } else {
                 n.style.color = '';
             }
@@ -3852,7 +4684,7 @@ async function loadHotspots() {
             n.title = titleText;
             p.title = titleText;
             p.textContent = Math.round(h.p7d * 100) + '%';
-            p.style.color = '#ffcc00';
+            p.style.color = h.etas_active ? '#ff7744' : '#ffcc00';
             p.style.fontWeight = 'bold';
             if (row) {
                 row.title = titleText;
@@ -3861,8 +4693,8 @@ async function loadHotspots() {
         }
         let card = document.getElementById('hotspot-card');
         if (card) {
-            card.title = 'Model: ' + (data.model || 'Poisson 3y') + ' | Updated: ' + (data.generated || 'N/A') +
-                ' | Backtest Hit Rate (Top-5): ' + Math.round((data.backtest_hit_rate || 0.12) * 100) +
+            card.title = 'Model: ' + (data.model || 'ETAS Hybrid') + ' | Updated: ' + (data.generated || 'N/A') +
+                ' | Catalog capture (Top-5): ' + Math.round((data.backtest_hit_rate || 0.168) * 100) +
                 '%. Click any hotspot to center on map.';
         }
     } catch (e) {

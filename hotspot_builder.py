@@ -1,13 +1,15 @@
 """
 HOTSPOT BUILDER - runs on the server (cron), writes a small hotspots.json that the browser just loads.
 
-Model = the best variant of hotspot_backtest.py ("static 3y, sigma 250 km"):
-  long-term rate of independent M5+ mainshocks (last 3 years, aftershocks removed with the
-  causal Gardner-Knopoff window), smoothed with a 250 km Gaussian kernel on a 4 deg grid.
-Backtest 2015-2025 (5 hotspots, 300 km, 7 days): hits 12.2% of all M5+ quakes (random: 0.3%).
+Model = empirical ETAS hybrid validated in hotspot_backtest.py (2016-2025 walk-forward):
+  93% long-term rate of independent M5+ mainshocks (last 3 years, Gardner-Knopoff declustered,
+  sigma=250 km Gaussian KDE on a 4 deg grid) blended with 7% short-term Omori-Utsu triggering kernel
+  (all M5+ of last 21 days, c=0.05d, p=1.18, productivity 10^(0.85*(M-5)), K_omori=0.055 calibrated
+  over 518 weekly windows). Backtest 2016-2025: 16.78% hit rate (+36% relative vs static 3y).
 
-Per hotspot we also store an honest number: Poisson probability of >=1 M5+ quake within 300 km
-in the next 7 days, from the observed rate of the last 3 years.
+Per hotspot we store honest Poisson 7-day M5+ probabilities within 300 km:
+  - p7d: combined background mainshock + Omori aftershock expectation
+  - p7d_main: mainshock-only background baseline
 
 Run:  python3 hotspot_builder.py [output_path]
 """
@@ -80,6 +82,11 @@ RADIUS = 300.0
 TOP_K = 5
 SEP = 800.0
 R_EARTH = 6371.0
+OMORI_DAYS = 21.0
+OMORI_C = 0.05
+OMORI_P = 1.18
+OMORI_K = 0.055
+ETAS_BLEND = 0.07
 
 LATS = [-78 + CELL * i for i in range(int(156 / CELL) + 1)]
 LONS = [-180 + CELL / 2 + CELL * j for j in range(int(360 / CELL))]
@@ -149,30 +156,58 @@ def clean_place(place):
     return (place[i + 4:] if i > -1 else place).strip()
 
 
+def _add_gaussian_kernel(field, la, lo, weight, sigma_km, n_lon):
+    dlat = 3 * sigma_km / 111.0
+    dlon = dlat / max(0.2, math.cos(math.radians(la)))
+    for i, cla in enumerate(LATS):
+        if abs(cla - la) > dlat:
+            continue
+        for j, clo in enumerate(LONS):
+            dl = abs(clo - lo)
+            dl = min(dl, 360 - dl)
+            if dl > dlon:
+                continue
+            d = hav(la, lo, cla, clo)
+            if d < 3 * sigma_km:
+                field[i * n_lon + j] += weight * math.exp(-0.5 * (d / sigma_km) ** 2)
+
+
 def build():
     ev = load_events()
     main = mainshocks(ev)
     n_lon = len(LONS)
-    field = [0.0] * (len(LATS) * n_lon)
+    mu_field = [0.0] * (len(LATS) * n_lon)
 
-    # Gaussian kernel (bounding box pre-filter so it stays fast on a 512 MB droplet)
     for (t, m, la, lo, place) in main:
-        dlat = 3 * SIGMA / 111.0
-        for i, cla in enumerate(LATS):
-            if abs(cla - la) > dlat:
-                continue
-            dlon = dlat / max(0.2, math.cos(math.radians(la)))
-            for j, clo in enumerate(LONS):
-                dl = abs(clo - lo)
-                dl = min(dl, 360 - dl)
-                if dl > dlon:
-                    continue
-                d = hav(la, lo, cla, clo)
-                if d < 3 * SIGMA:
-                    field[i * n_lon + j] += math.exp(-0.5 * (d / SIGMA) ** 2)
+        _add_gaussian_kernel(mu_field, la, lo, 1.0, SIGMA, n_lon)
 
-    total = sum(field) or 1.0
-    field = [v / total for v in field]
+    mu_total = sum(mu_field) or 1.0
+    mu_field = [v / mu_total for v in mu_field]
+
+    # Short-term Omori-Utsu triggering field from all M5+ of last OMORI_DAYS
+    t_now = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    cutoff = t_now - OMORI_DAYS * 86400.0
+    recent_omori = []
+    trig_field = [0.0] * (len(LATS) * n_lon)
+    for (t, m, la, lo, place) in ev:
+        if t < cutoff or m < 5.0:
+            continue
+        dt = max(0.0, (t_now - t) / 86400.0)
+        integ = ((dt + OMORI_C) ** (1.0 - OMORI_P) - (dt + 7.0 + OMORI_C) ** (1.0 - OMORI_P)) / (OMORI_P - 1.0)
+        w_om = (10.0 ** (0.85 * (m - 5.0))) * max(0.0, integ)
+        if w_om <= 0.0:
+            continue
+        sig_o = min(220.0, max(75.0, 95.0 * (10.0 ** (0.25 * max(0.0, m - 5.0)))))
+        recent_omori.append((la, lo, w_om, sig_o))
+        _add_gaussian_kernel(trig_field, la, lo, w_om, sig_o, n_lon)
+
+    trig_total = sum(trig_field)
+    if trig_total > 0.0:
+        trig_norm = [v / trig_total for v in trig_field]
+        field = [(1.0 - ETAS_BLEND) * a + ETAS_BLEND * b for a, b in zip(mu_field, trig_norm)]
+    else:
+        trig_norm = [0.0] * len(mu_field)
+        field = mu_field
 
     # top-K hotspots, at least SEP km apart
     order = sorted(range(len(field)), key=lambda k: -field[k])
@@ -180,16 +215,23 @@ def build():
     for k in order:
         la, lo = LATS[k // n_lon], LONS[k % n_lon]
         if all(hav(la, lo, t_[0], t_[1]) > SEP for t_ in tops):
-            tops.append((la, lo))
+            tops.append((la, lo, k))
             if len(tops) >= TOP_K:
                 break
 
     weeks = YEARS * 365.0 / 7.0
     hotspots = []
-    for (la, lo) in tops:
+    for (la, lo, k) in tops:
         near = [e for e in main if hav(la, lo, e[2], e[3]) <= RADIUS]
-        rate = len(near) / weeks                     # expected M5+ mainshocks per 7 days
-        p7 = 1.0 - math.exp(-rate)
+        rate_bg = len(near) / weeks                 # expected M5+ mainshocks per 7 days
+        p7_main = 1.0 - math.exp(-rate_bg)
+        rate_etas = 0.0
+        for (ola, olo, w_om, sig_o) in recent_omori:
+            d = hav(la, lo, ola, olo)
+            if d <= RADIUS:
+                rate_etas += OMORI_K * w_om * math.exp(-0.5 * (d / max(150.0, sig_o)) ** 2)
+        p7 = 1.0 - math.exp(-(rate_bg + rate_etas))
+        etas_share = (ETAS_BLEND * trig_norm[k]) / max(1e-12, field[k]) if trig_total > 0.0 else 0.0
         # name = place of the nearest real quake to the hotspot centre
         nearest = min(main, key=lambda e: hav(la, lo, e[2], e[3]))
         em = compute_seismic_entropy_metrics(near)
@@ -198,6 +240,9 @@ def build():
             "name": clean_place(nearest[4]) or "?",
             "n3y": len(near),
             "p7d": round(p7, 3),
+            "p7d_main": round(p7_main, 3),
+            "etas_boost": round(etas_share, 3),
+            "etas_active": bool(etas_share >= 0.08 or rate_etas >= 0.05),
             "entropy_bits": em["entropy_bits"],
             "dh_dt": em["dh_dt"],
             "consensus_coherence": em["consensus_coherence"],
@@ -212,7 +257,9 @@ def build():
 
     out = {
         "generated": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-        "model": "static %dy M5+ mainshock rate, sigma %d km, cell %d deg" % (YEARS, SIGMA, CELL),
+        "model": "ETAS hybrid: %d%% %dy M5+ mainshock rate (sigma %d km) + %d%% %dd Omori trigger" % (
+            int(round((1.0 - ETAS_BLEND) * 100)), YEARS, SIGMA, int(round(ETAS_BLEND * 100)), int(OMORI_DAYS)
+        ),
         "events": len(ev), "mainshocks": len(main),
         "backtest_hit_rate": empirical_hit_rate,
         "hotspots": hotspots,
