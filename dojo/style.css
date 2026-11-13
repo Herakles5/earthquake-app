@@ -595,6 +595,147 @@ html, body {
     box-shadow: 0 0 12px rgba(255, 0, 255, 0.4);
 }
 
+.preset-pill.dj-preset {
+    border-color: rgba(255, 51, 102, 0.4);
+    color: #ff99b8;
+}
+
+.preset-pill.dj-preset.active {
+    background: rgba(255, 51, 102, 0.28);
+    border-color: var(--red);
+    color: #fff;
+    box-shadow: 0 0 14px rgba(255, 51, 102, 0.55);
+}
+
+/* DJ Deep Bass & Groove Console */
+.dj-bass-console {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+    border-top: 1px solid rgba(255, 51, 102, 0.22);
+    margin-top: 12px;
+    padding-top: 12px;
+}
+
+.dj-console-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.groove-pill {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 51, 102, 0.25);
+    color: #ccc;
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.groove-pill:hover {
+    color: #fff;
+    border-color: rgba(255, 51, 102, 0.65);
+}
+
+.groove-pill.active {
+    background: linear-gradient(135deg, rgba(255, 51, 102, 0.35) 0%, rgba(255, 136, 0, 0.28) 100%);
+    border-color: var(--red);
+    color: #fff;
+    box-shadow: 0 0 12px rgba(255, 51, 102, 0.45);
+}
+
+.dj-console-sliders {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+
+.dj-mini-ctrl {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(0, 0, 0, 0.35);
+    padding: 4px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.dj-mini-lbl {
+    font-family: var(--font-heading);
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 0.8px;
+}
+
+.dj-mini-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 82px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.14);
+    border-radius: 2px;
+    outline: none;
+}
+
+.dj-mini-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 13px;
+    height: 13px;
+    border-radius: 50%;
+    background: var(--gold);
+    cursor: pointer;
+    box-shadow: 0 0 8px var(--gold);
+}
+
+.dj-mini-slider.bass::-webkit-slider-thumb {
+    background: var(--red);
+    box-shadow: 0 0 8px var(--red);
+}
+
+.dj-mini-val {
+    font-family: monospace;
+    font-size: 12px;
+    font-weight: bold;
+    color: var(--gold);
+    min-width: 34px;
+    text-align: right;
+}
+
+.dj-mini-val.bass {
+    color: var(--red);
+    min-width: 42px;
+}
+
+.cyber-btn.drop-btn {
+    background: linear-gradient(135deg, #ff3366 0%, #ff7b00 100%);
+    border: none;
+    color: #fff;
+    box-shadow: 0 0 16px rgba(255, 51, 102, 0.55);
+}
+
+.cyber-btn.drop-btn:hover {
+    box-shadow: 0 0 26px rgba(255, 51, 102, 0.9);
+    transform: scale(1.04);
+}
+
+.cyber-btn.drop-btn.dropping {
+    animation: bassDropPulse 0.35s infinite alternate;
+}
+
+@keyframes bassDropPulse {
+    from { box-shadow: 0 0 12px rgba(255, 209, 102, 0.7); transform: scale(1.0); }
+    to { box-shadow: 0 0 32px rgba(255, 51, 102, 1.0); transform: scale(1.07); }
+}
+
 .channel-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -619,6 +760,25 @@ html, body {
 
 .channel-card.highlight-purple {
     border-color: rgba(157, 78, 221, 0.4);
+}
+
+.channel-card.highlight-bass {
+    border-color: rgba(255, 51, 102, 0.42);
+    background: linear-gradient(160deg, rgba(24, 12, 22, 0.9) 0%, rgba(16, 18, 28, 0.88) 100%);
+}
+
+.channel-card.highlight-bass:hover {
+    border-color: rgba(255, 51, 102, 0.8);
+    box-shadow: 0 6px 24px rgba(255, 51, 102, 0.18);
+}
+
+.channel-card.highlight-amber {
+    border-color: rgba(255, 136, 0, 0.4);
+    background: linear-gradient(160deg, rgba(24, 18, 12, 0.9) 0%, rgba(16, 18, 28, 0.88) 100%);
+}
+
+.channel-card.highlight-amber:hover {
+    border-color: rgba(255, 170, 51, 0.8);
 }
 
 .channel-header {
@@ -657,6 +817,16 @@ html, body {
 .ch-badge.gold {
     background: rgba(255, 209, 102, 0.2);
     color: var(--gold);
+}
+
+.ch-badge.bass {
+    background: rgba(255, 51, 102, 0.22);
+    color: #ff4d79;
+}
+
+.ch-badge.amber {
+    background: rgba(255, 136, 0, 0.22);
+    color: #ff9e2c;
 }
 
 .ch-val {
@@ -707,6 +877,16 @@ html, body {
 .ch-slider.gold::-webkit-slider-thumb {
     background: var(--gold);
     box-shadow: 0 0 10px var(--gold);
+}
+
+.ch-slider.bass::-webkit-slider-thumb {
+    background: var(--red);
+    box-shadow: 0 0 10px var(--red);
+}
+
+.ch-slider.amber::-webkit-slider-thumb {
+    background: #ff9e2c;
+    box-shadow: 0 0 10px #ff9e2c;
 }
 
 .ch-tags {

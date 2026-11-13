@@ -462,9 +462,11 @@ class ReactiveVisualizer {
         const gainMult = (this.sensitivity / 2.5);
         const agcScale = (255.0 / effectivePeak) * gainMult;
 
-        // 5. Band Integration
-        const bassEnd = Math.max(2, Math.floor(binCount * 0.15));
-        const midEnd = Math.floor(binCount * 0.55);
+        // 5. Hz-Calibrated Band Integration (Bass <= 240 Hz, Mid <= 2500 Hz)
+        const nyquist = (actx?.sampleRate || 44100) / 2;
+        const hzPerBin = nyquist / binCount;
+        const bassEnd = Math.max(3, Math.min(Math.floor(binCount * 0.15), Math.round(240 / hzPerBin)));
+        const midEnd = Math.max(bassEnd + 4, Math.min(Math.floor(binCount * 0.65), Math.round(2500 / hzPerBin)));
 
         let bassSum = 0, midSum = 0, highSum = 0, totalSum = 0;
         for (let i = 1; i < binCount; i++) {
@@ -510,7 +512,6 @@ class ReactiveVisualizer {
         const high = Math.min(1.0, highSum / ((binCount - midEnd) * 255.0));
 
         // Dominant frequency calculation (accurate pitch tracking)
-        const nyquist = (window.AionApp.getAudioContext()?.sampleRate || 44100) / 2;
         let domFreq = 0;
         if (hasSignal && maxRaw >= 2) {
             domFreq = Math.round((maxIndex / binCount) * nyquist);

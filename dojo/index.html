@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>AION NEXUS Dojo & Creative Lab</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=20261113">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
@@ -159,10 +159,37 @@
                         <button class="preset-pill" data-preset="stellar_rain">🌧️ Stellar Rain & Wind</button>
                         <button class="preset-pill" data-preset="cyber_aurora">✨ Cyber Aurora Pad</button>
                         <button class="preset-pill" data-preset="zen_temple">⛩️ Zen Bell Sanctuary</button>
+                        <button class="preset-pill dj-preset" data-preset="dj_dub">🔊 Deep Dub Club (DJ)</button>
+                        <button class="preset-pill dj-preset" data-preset="dj_cyber">⚡ Cyber Bass Drop (DJ)</button>
+                        <button class="preset-pill dj-preset" data-preset="dj_quake">🌋 Earthquake 34Hz Sub (DJ)</button>
+                    </div>
+
+                    <!-- DJ Deep Bass & Groove Console -->
+                    <div class="dj-bass-console">
+                        <div class="dj-console-group">
+                            <span class="preset-label">DJ GROOVE:</span>
+                            <button class="groove-pill active" data-groove="deepdub">🎧 Deep Dub</button>
+                            <button class="groove-pill" data-groove="rolling">⚡ Rolling Bass</button>
+                            <button class="groove-pill" data-groove="halftime">🌌 808 Halftime</button>
+                            <button class="groove-pill" data-groove="heartbeat">🫀 Heartbeat</button>
+                        </div>
+                        <div class="dj-console-sliders">
+                            <div class="dj-mini-ctrl">
+                                <span class="dj-mini-lbl">BPM</span>
+                                <input type="range" id="slider-dj-bpm" min="60" max="138" value="112" class="dj-mini-slider">
+                                <span id="val-dj-bpm" class="dj-mini-val">112</span>
+                            </div>
+                            <div class="dj-mini-ctrl">
+                                <span class="dj-mini-lbl">TIEFBASS HZ</span>
+                                <input type="range" id="slider-dj-subfreq" min="30" max="60" value="38" class="dj-mini-slider bass">
+                                <span id="val-dj-subfreq" class="dj-mini-val bass">38 Hz</span>
+                            </div>
+                        </div>
+                        <button id="btn-dj-bassdrop" class="cyber-btn sm drop-btn" title="Trigger DJ Sub-Bass Filter Sweep & Drop">⚡ BASS DROP</button>
                     </div>
                 </div>
 
-                <!-- Sliders Grid -->
+                <!-- Sliders Grid (3x3 Symmetrical Matrix) -->
                 <div class="channel-grid">
                     <!-- Layer 1: Cosmic Drone -->
                     <div class="channel-card">
@@ -171,7 +198,7 @@
                             <h4>Cosmic Sub-Bass Drone</h4>
                             <span class="ch-val" id="val-drone">65%</span>
                         </div>
-                        <p class="ch-desc">Warme, schwebende Tiefbass-Resonanz (45–65 Hz)</p>
+                        <p class="ch-desc">Warme, schwebende Tiefbass-Resonanz (32–55 Hz Sub-Oktave)</p>
                         <input type="range" id="slider-drone" min="0" max="100" value="65" class="ch-slider">
                         <div class="ch-tags"><span>warm</span><span>grounding</span></div>
                     </div>
@@ -234,6 +261,42 @@
                         <p class="ch-desc">Zufällig perlende pentatonische Glocken mit langem Nachhall</p>
                         <input type="range" id="slider-chimes" min="0" max="100" value="45" class="ch-slider gold">
                         <div class="ch-tags"><span>sparkle</span><span>zen</span></div>
+                    </div>
+
+                    <!-- Layer 7: DJ Deep 808 Sub-Kick -->
+                    <div class="channel-card highlight-bass">
+                        <div class="channel-header">
+                            <span class="ch-badge bass">808 KICK</span>
+                            <h4>DJ Deep 808 Sub-Kick</h4>
+                            <span class="ch-val" id="val-subkick">60%</span>
+                        </div>
+                        <p class="ch-desc">Ultratiefes 808-Fundament (30–55 Hz) mit druckvollem Club-Punch</p>
+                        <input type="range" id="slider-subkick" min="0" max="100" value="60" class="ch-slider bass">
+                        <div class="ch-tags"><span>808 sub</span><span>club punch</span></div>
+                    </div>
+
+                    <!-- Layer 8: Rolling Deep DJ Bassline -->
+                    <div class="channel-card highlight-bass">
+                        <div class="channel-header">
+                            <span class="ch-badge bass">DEEP BASS</span>
+                            <h4>Rolling DJ Sub-Bassline</h4>
+                            <span class="ch-val" id="val-bassline">65%</span>
+                        </div>
+                        <p class="ch-desc">Harmonische Analog-Tiefbass-Sequenz mit Resonanz & Sidechain-Pump</p>
+                        <input type="range" id="slider-bassline" min="0" max="100" value="65" class="ch-slider bass">
+                        <div class="ch-tags"><span>sub groove</span><span>sidechain</span></div>
+                    </div>
+
+                    <!-- Layer 9: Analog Sub-Harmonic Drive -->
+                    <div class="channel-card highlight-amber">
+                        <div class="channel-header">
+                            <span class="ch-badge amber">SUB BOOST</span>
+                            <h4>Analog Sub-Harmonic Drive</h4>
+                            <span class="ch-val" id="val-subdrive">70%</span>
+                        </div>
+                        <p class="ch-desc">Low-Shelf Tiefbass-Boost (+11 dB @ 68 Hz) & warme Röhrensättigung</p>
+                        <input type="range" id="slider-subdrive" min="0" max="100" value="70" class="ch-slider amber">
+                        <div class="ch-tags"><span>low-shelf</span><span>warmth</span></div>
                     </div>
                 </div>
 
@@ -481,8 +544,8 @@
     <!-- Scripts -->
     <script src="lib/three.min.js"></script>
     <script src="lib/GLTFLoader.js"></script>
-    <script src="ambient.js"></script>
-    <script src="visualizer.js"></script>
+    <script src="ambient.js?v=20261113"></script>
+    <script src="visualizer.js?v=20261113"></script>
     <script src="tetris.js"></script>
     <script src="boxing.js"></script>
     <script src="app.js"></script>
