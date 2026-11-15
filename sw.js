@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eq-store-v22';
+const CACHE_NAME = 'eq-store-v23';
 const APP_SHELL = [
     './',
     './index.html',

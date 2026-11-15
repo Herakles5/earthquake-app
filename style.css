@@ -66,10 +66,9 @@ canvas {
     top: 90px;
     left: 20px;
     width: 380px;
-    background: rgba(15, 15, 20, 0.95);
+    background: rgba(15, 15, 22, 0.96);
     border: 1px solid rgba(255, 136, 0, 0.5);
     border-radius: 12px;
-    backdrop-filter: blur(10px);
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8), 0 0 20px rgba(255, 136, 0, 0.15);
     pointer-events: auto;
     z-index: 100;
@@ -196,7 +195,6 @@ button {
     font-size: 24px;
     font-weight: bold;
     cursor: pointer;
-    backdrop-filter: blur(5px);
     box-shadow: 0 4px 15px rgba(0,0,0,0.3);
     transition: background 0.2s, transform 0.1s;
 }
@@ -219,11 +217,10 @@ button:active {
     right: 20px;
     width: 280px;
     max-height: calc(100% - 40px);
-    background: rgba(15, 15, 20, 0.85);
+    background: rgba(15, 15, 22, 0.94);
     border: 1px solid rgba(255,255,255,0.1);
     border-radius: 15px;
     padding: 15px;
-    backdrop-filter: blur(10px);
     overflow-y: auto;
     pointer-events: auto;
     z-index: 20;
@@ -236,7 +233,7 @@ button:active {
     left: 0;
     width: 100%;
     height: 35px;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.85);
     color: white;
     z-index: 100;
     overflow: hidden;
@@ -245,12 +242,15 @@ button:active {
     align-items: center;
     border-bottom: 1px solid rgba(255, 255, 255, 0.2);
     pointer-events: none;
+    contain: layout style;
 }
 
 #ticker-scroll {
     display: inline-block;
     padding-left: 100%;
     animation: ticker 40s linear infinite;
+    will-change: transform;
+    backface-visibility: hidden;
 }
 
 @keyframes ticker {
@@ -323,13 +323,12 @@ h3 {
 }
 
 #prediction-bar {
-    background: rgba(20, 20, 30, 0.9);
+    background: rgba(20, 20, 30, 0.94);
     border: 1px solid rgba(255,136,0,0.4);
     border-radius: 20px;
     padding: 12px 25px;
     color: #fff;
     font-size: 15px;
-    backdrop-filter: blur(5px);
     pointer-events: auto;
     box-shadow: 0 4px 15px rgba(0,0,0,0.5);
     text-align: center;
@@ -433,13 +432,12 @@ h3 {
     top: 70px;
     left: 20px;
     width: 330px;
-    background: rgba(20, 20, 30, 0.8);
+    background: rgba(20, 20, 30, 0.92);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 8px;
     padding: 15px 15px 70px 15px;
     color: #fff;
     font-family: Arial, sans-serif;
-    backdrop-filter: blur(5px);
     pointer-events: auto;
     z-index: 20;
     box-shadow: 0 4px 15px rgba(0,0,0,0.5);
@@ -553,8 +551,7 @@ h3 {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(8, 8, 14, 0.88);
-    backdrop-filter: blur(10px);
+    background: rgba(8, 8, 14, 0.94);
     z-index: 10000;
     display: flex;
     justify-content: center;
@@ -841,10 +838,9 @@ h3 {
     width: 100%;
     box-sizing: border-box;
     height: 110px;
-    background: rgba(15, 15, 20, 0.85);
+    background: rgba(15, 15, 22, 0.92);
     border: 1px solid rgba(255, 51, 255, 0.4);
     border-radius: 12px;
-    backdrop-filter: blur(5px);
     pointer-events: auto;
     box-shadow: 0 4px 15px rgba(255, 51, 255, 0.15);
     z-index: 20;
@@ -924,12 +920,10 @@ h3 {
     z-index: 100;
     min-width: 280px;
     max-width: 340px;
-    background: rgba(15, 15, 25, 0.95);
+    background: rgba(15, 15, 25, 0.96);
     border: 1px solid rgba(255, 136, 0, 0.5);
     border-radius: 10px;
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.7), 0 0 20px rgba(255, 136, 0, 0.15);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
     pointer-events: auto;
     transform: translate(-50%, -100%) translateY(-18px);
     animation: popupFadeIn 0.2s ease-out;
@@ -1391,12 +1385,17 @@ h3 {
 }
 
 /* the map lives BELOW the strip, left of the list */
-#mapCanvas {
+#bgMapCanvas,
+#mapCanvas,
+#fgCoastCanvas {
     top: var(--strip-h) !important;
     left: 0;
     width: calc(100% - var(--list-w)) !important;
     height: calc(100% - var(--strip-h)) !important;
 }
+#bgMapCanvas { z-index: 1; pointer-events: none; }
+#mapCanvas { z-index: 2; }
+#fgCoastCanvas { z-index: 3; pointer-events: none; }
 
 #controls { top: auto !important; right: auto !important; left: 15px !important; bottom: 20px !important; transform: none; }
 #search-panel { top: calc(var(--strip-h) + 6px) !important; left: 15px; z-index: 120; }
@@ -1407,8 +1406,7 @@ h3 {
     right: calc(var(--list-w) + 12px);
     bottom: 8px;
     z-index: 95;
-    background: rgba(12, 14, 22, 0.90);
-    backdrop-filter: blur(8px);
+    background: rgba(12, 14, 22, 0.94);
     border: 1px solid rgba(0, 255, 204, 0.38);
     border-radius: 9px;
     padding: 4px 8px;

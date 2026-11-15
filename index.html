@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Earthquake Map</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261113">
+    <link rel="stylesheet" href="style.css?v=20261115">
     <meta name="theme-color" content="#1a1a24">
     <!-- PWA settings for iOS -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -441,12 +441,14 @@
     </div>
 
     </div>
+    <canvas id="bgMapCanvas" aria-hidden="true"></canvas>
     <canvas id="mapCanvas"></canvas>
+    <canvas id="fgCoastCanvas" aria-hidden="true"></canvas>
 
     <script src="coastlines.js?v=20261113"></script>
     <script src="plates.js?v=20261113"></script>
     <script src="tectonic_model.js?v=20261113"></script>
-    <script src="app.js?v=20261113"></script>
+    <script src="app.js?v=20261115"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {

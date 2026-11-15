@@ -235,12 +235,18 @@ var forecastState = window.forecastState = {
     playStepIdx: 0,
     playContinuousYears: 0,
     etasCells: [],
+    etasRev: 0,
     seismicGaps: [],
     plateVelSamples: null,
     coastPlateCache: null,
+    coastUnitXY: null,
+    plateUnitXY: null,
+    plateRegimeIndices: null,
     driftCacheYears: -1,
     driftedPlates: null,
-    driftedCoast: null
+    driftedCoast: null,
+    driftedPlatesUnitXY: null,
+    driftedCoastUnitXY: null
 };
 
 function snapToNearestPlateBoundary(lat, lon, maxSearchKm = 350) {
@@ -846,32 +852,53 @@ function gkWindow(mag) {
 
 function declusterGK(eqsNewestFirst) {
     // Causal: an event is an aftershock if an EARLIER event with >= magnitude has it inside its G-K window.
-    let asc = eqsNewestFirst.slice().reverse();
+    let n = eqsNewestFirst.length;
     let active = [];
     let keep = [];
-    for (let i = 0; i < asc.length; i++) {
-        let ev = asc[i];
-        active = active.filter(a => a.end > ev.time);
+    for (let i = n - 1; i >= 0; i--) {
+        let ev = eqsNewestFirst[i];
+        let evTime = ev.time;
+        let evLat = ev.lat;
+        let evLon = ev.lon;
+        let evMag = ev.mag;
         let isAfter = false;
-        for (let k = 0; k < active.length; k++) {
+        for (let k = active.length - 1; k >= 0; k--) {
             let a = active[k];
-            if (a.mag >= ev.mag && haversineDistance(ev.lat, ev.lon, a.lat, a.lon) <= a.km) { isAfter = true; break; }
+            if (a.end <= evTime) {
+                active[k] = active[active.length - 1];
+                active.pop();
+                continue;
+            }
+            let dl = Math.abs(evLon - a.lon);
+            if (dl > 180) dl = 360 - dl;
+            if (!isAfter && a.mag >= evMag &&
+                Math.abs(evLat - a.lat) <= a.dLatMax &&
+                dl <= a.dLonMax &&
+                haversineDistance(evLat, evLon, a.lat, a.lon) <= a.km) {
+                isAfter = true;
+            }
         }
         if (!isAfter) keep.push(ev);
-        let w = gkWindow(ev.mag);
-        active.push({ end: ev.time + w.ms, km: w.km, mag: ev.mag, lat: ev.lat, lon: ev.lon });
+        let w = gkWindow(evMag);
+        let dLatMax = w.km / 110.5;
+        let minCos = Math.cos(Math.min(88.0, Math.abs(evLat) + dLatMax) * (Math.PI / 180.0));
+        let dLonMax = Math.min(180.0, (w.km / (110.5 * Math.max(0.05, minCos))) * 1.6);
+        active.push({ end: evTime + w.ms, km: w.km, dLatMax: dLatMax, dLonMax: dLonMax, mag: evMag, lat: evLat, lon: evLon });
     }
     return keep.reverse();
 }
 
 function gaiaMergeEqs(...arrays) {
     let map = new Map();
-    arrays.forEach(arr => {
-        if (arr) arr.forEach(eq => {
+    for (let a = 0; a < arrays.length; a++) {
+        let arr = arrays[a];
+        if (!arr) continue;
+        for (let i = 0; i < arr.length; i++) {
+            let eq = arr[i];
             let sig = eq.id ? String(eq.id) : `${eq.lat.toFixed(2)}_${eq.lon.toFixed(2)}_${eq.time}`;
             map.set(sig, eq);
-        });
-    });
+        }
+    }
     let sorted = Array.from(map.values()).sort((a, b) => b.time - a.time);
     // Drop USGS/EMSC twins (same quake, different id): <5 min and <180 km apart (handles ±180° date line) -> keep stronger
     let kept = [];
@@ -879,7 +906,7 @@ function gaiaMergeEqs(...arrays) {
         let eq = sorted[i];
         let dup = false;
         for (let j = kept.length - 1; j >= 0 && (kept[j].time - eq.time) < 300000; j--) {
-            if (haversineDistance(eq.lat, eq.lon, kept[j].lat, kept[j].lon) < 180.0) {
+            if (Math.abs(eq.lat - kept[j].lat) <= 1.65 && haversineDistance(eq.lat, eq.lon, kept[j].lat, kept[j].lon) < 180.0) {
                 dup = true;
                 if (eq.mag > kept[j].mag) kept[j] = eq;
                 break;
@@ -890,7 +917,8 @@ function gaiaMergeEqs(...arrays) {
     return kept;
 }
 
-let _gaiaDS = { sig: '', all: [], m5: [], m7: [], m8: [], m9: [] };
+let _gaiaDS = { sig: '', all: [], m5: [], m7: [], m8: [], m9: [], m5Main: null };
+let _gaiaBaseCache = new Map();
 let _gaiaStatCache = new Map();
 
 function gaiaDatasets() {
@@ -907,38 +935,59 @@ function gaiaDatasets() {
             m5: gaiaMergeEqs(all, historicalM5Eqs),
             m7: gaiaMergeEqs(all, historicalM7Eqs),
             m8: gaiaMergeEqs(all, historicalM8Eqs),
-            m9: gaiaMergeEqs(all, historicalM9Eqs)
+            m9: gaiaMergeEqs(all, historicalM9Eqs),
+            m5Main: null
         };
+        _gaiaBaseCache.clear();
         _gaiaStatCache.clear();
     }
     return _gaiaDS;
 }
 
-function gaiaStatsFor(eqsNewestFirst, declusterIt) {
-    let list = declusterIt ? declusterGK(eqsNewestFirst) : eqsNewestFirst;
+function gaiaComputeBaseStats(eqsNewestFirst, declusterIt, reuseList) {
+    let list = reuseList || (declusterIt ? declusterGK(eqsNewestFirst) : eqsNewestFirst);
     if (list.length < 3) return null;
     let gaps = computeGaps(list);
     let medGap = median(gaps);
     let emaGap = exponentialWeightedAvg(gaps, 0.3);
     let rawGap = medGap * 0.6 + emaGap * 0.4;
-    let lt = getLunarTidalStress();
-    let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0);
-    let effGap = rawGap / totalMult;
     let sigma = stdDev(gaps);
     let cv = rawGap > 0 ? (sigma / rawGap) : 0.7;
     // Empirical Weibull/BPT shape k ≈ 1 / CV (clamped physically 1.05..3.2 when n>=5)
     let shapeK = gaps.length >= 4 ? Math.min(3.2, Math.max(1.05, 1.0 / Math.max(0.32, cv))) : 1.6;
     let last = declusterIt ? list[0] : eqsNewestFirst[0];
+    return {
+        n: list.length,
+        rawGap: rawGap,
+        sigma: sigma,
+        cv: cv,
+        shapeK: shapeK,
+        lastEq: last,
+        list: declusterIt ? list : null
+    };
+}
+
+function gaiaApplyMultiplier(base, totalMult) {
+    if (!base) return null;
+    let effGap = base.rawGap / totalMult;
     let p50Gap = Math.round(Math.LN2 * effGap);
     let p90Gap = Math.round(2.302585 * effGap);
     return {
-        n: list.length, rawGap: rawGap, effGap: effGap,
+        n: base.n, rawGap: base.rawGap, effGap: effGap,
         p50Gap: p50Gap, p90Gap: p90Gap,
-        p50Time: last.time + p50Gap,
-        p90Time: last.time + p90Gap,
-        sigma: sigma, cv: cv, shapeK: shapeK, lastEq: last,
-        nextTime: last.time + effGap
+        p50Time: base.lastEq.time + p50Gap,
+        p90Time: base.lastEq.time + p90Gap,
+        sigma: base.sigma, cv: base.cv, shapeK: base.shapeK, lastEq: base.lastEq,
+        nextTime: base.lastEq.time + effGap
     };
+}
+
+function gaiaStatsFor(eqsNewestFirst, declusterIt) {
+    let base = gaiaComputeBaseStats(eqsNewestFirst, declusterIt);
+    if (!base) return null;
+    let lt = getLunarTidalStress();
+    let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0);
+    return gaiaApplyMultiplier(base, totalMult);
 }
 
 // kind: 3|4|5|6|7|8|9 (magnitude class) or 'deep' (depth >= 150 km)
@@ -946,23 +995,37 @@ function gaiaStatsFor(eqsNewestFirst, declusterIt) {
 function gaiaClass(kind, windowMs) {
     let ds = gaiaDatasets();
     let lt = getLunarTidalStress();
-    let key = kind + '|' + (windowMs || 0) + '|' + gaiaChargeMultiplier.toFixed(3) + '|' + (lt ? lt.multiplier.toFixed(3) : '1.000') + '|' + Math.floor(Date.now() / 60000);
-    if (_gaiaStatCache.has(key)) return _gaiaStatCache.get(key);
-    let src, decl = false;
-    if (kind === 'deep') {
-        src = ds.all.filter(e => e.depth >= 150.0);
-    } else {
-        let base = kind >= 9 ? ds.m9 : (kind >= 8 ? ds.m8 : (kind >= 7 ? ds.m7 : (kind >= 5 ? ds.m5 : ds.all)));
-        src = base.filter(e => e.mag >= kind);
-        decl = kind >= 5;
+    let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0);
+    // Cache base declustered catalog stats independent of tide/charge multipliers and wall-clock minute for unwindowed classes
+    let baseKey = windowMs ? (kind + '|' + windowMs + '|' + Math.floor(Date.now() / 60000)) : String(kind);
+    let base = _gaiaBaseCache.get(baseKey);
+    if (base === undefined) {
+        let src, decl = false;
+        if (kind === 'deep') {
+            src = ds.all.filter(e => e.depth >= 150.0);
+        } else {
+            let bArr = kind >= 9 ? ds.m9 : (kind >= 8 ? ds.m8 : (kind >= 7 ? ds.m7 : (kind >= 5 ? ds.m5 : ds.all)));
+            src = bArr.filter(e => e.mag >= kind);
+            decl = kind >= 5;
+        }
+        if (windowMs) {
+            let cutoff = Date.now() - windowMs;
+            src = src.filter(e => e.time >= cutoff);
+        }
+        let reuseList = (kind === 5 && !windowMs && ds.m5Main) ? ds.m5Main : null;
+        base = src.length >= 3 ? gaiaComputeBaseStats(src, decl, reuseList) : null;
+        if (kind === 5 && !windowMs && base && base.list && !ds.m5Main) {
+            ds.m5Main = base.list;
+        }
+        if (_gaiaBaseCache.size > 120) _gaiaBaseCache.clear();
+        _gaiaBaseCache.set(baseKey, base);
     }
-    if (windowMs) {
-        let cutoff = Date.now() - windowMs;
-        src = src.filter(e => e.time >= cutoff);
-    }
-    let st = src.length >= 3 ? gaiaStatsFor(src, decl) : null;
+    if (!base) return null;
+    let statKey = baseKey + '|' + totalMult.toFixed(3);
+    if (_gaiaStatCache.has(statKey)) return _gaiaStatCache.get(statKey);
+    let st = gaiaApplyMultiplier(base, totalMult);
     if (_gaiaStatCache.size > 200) _gaiaStatCache.clear();
-    _gaiaStatCache.set(key, st);
+    _gaiaStatCache.set(statKey, st);
     return st;
 }
 
@@ -985,50 +1048,50 @@ function gaiaRecomputeAll(force) {
     predictedNextTime30dDeep = set(predictedNextTime30dDeep, gaiaClass('deep', 30 * D));
 }
 
+const _predDomCache = Object.create(null);
+function _setPredDom(el, key, text, color, title) {
+    let c = _predDomCache[key];
+    if (!c) c = _predDomCache[key] = { t: '', c: '', ti: '' };
+    if (text !== undefined && c.t !== text) { c.t = text; el.textContent = text; }
+    if (color !== undefined && c.c !== color) { c.c = color; el.style.color = color; }
+    if (title !== undefined && c.ti !== title) { c.ti = title; el.title = title; }
+}
+
 function updatePrediction() {
     gaiaRecomputeAll();
+    let nowMs = Date.now();
     let renderCountdown = (id, predictedTime, normalColor, stat) => {
         const el = document.getElementById(id);
-        if (el && predictedTime > 0) {
-            let diff = predictedTime - Date.now();
+        if (!el) return;
+        if (predictedTime > 0) {
+            let diff = predictedTime - nowMs;
             if (diff > 0) {
                 let diffSecs = Math.floor(diff / 1000);
                 let d = Math.floor(diffSecs / 86400);
                 let h = Math.floor((diffSecs % 86400) / 3600);
                 let m = Math.floor((diffSecs % 3600) / 60);
                 let s = diffSecs % 60;
-                let text = "";
-                if (d > 0) text = `${d}d ${h}h ${m}m ${s}s`;
-                else if (h > 0) text = `${h}h ${m}m ${s}s`;
-                else text = `${m}m ${s}s`;
-                
-                el.textContent = text;
-                el.style.color = normalColor;
+                let text = d > 0 ? `${d}d ${h}h ${m}m ${s}s` : (h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`);
+                _setPredDom(el, id, text, normalColor);
             } else {
                 let overdueSecs = Math.floor(Math.abs(diff) / 1000);
                 let d = Math.floor(overdueSecs / 86400);
                 let h = Math.floor((overdueSecs % 86400) / 3600);
                 let m = Math.floor((overdueSecs % 3600) / 60);
                 let s = overdueSecs % 60;
-                let timeText = "";
-                if (d > 0) timeText = `${d}d ${h}h ${m}m ${s}s`;
-                else if (h > 0) timeText = `${h}h ${m}m ${s}s`;
-                else timeText = `${m}m ${s}s`;
-                
+                let timeText = d > 0 ? `${d}d ${h}h ${m}m ${s}s` : (h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`);
                 let bptStr = "";
                 if (stat && stat.effGap && stat.lastEq) {
-                    let elapsed = Math.max(0, Date.now() - stat.lastEq.time);
+                    let elapsed = Math.max(0, nowMs - stat.lastEq.time);
                     let bpt = calculateBPTStrain(elapsed, stat.effGap, stat.shapeK || 1.6);
                     if (bpt.strain > 1.05) {
                         bptStr = ` · BPT ${bpt.strain.toFixed(1)}x`;
                     }
                 }
-                
-                el.textContent = `OVERDUE by ${timeText}${bptStr}`;
-                el.style.color = '#ff3333';
+                _setPredDom(el, id, `OVERDUE by ${timeText}${bptStr}`, '#ff3333');
             }
-        } else if (el) {
-            el.textContent = 'Calculating...';
+        } else {
+            _setPredDom(el, id, 'Calculating...', undefined);
         }
     };
 
@@ -1059,27 +1122,33 @@ function updatePrediction() {
     renderCountdown('stat-7d-deep-avg', predictedNextTime7dDeep, '#88bbff', gaiaClass('deep', 7 * D));
     renderCountdown('stat-30d-deep-avg', predictedNextTime30dDeep, '#88bbff', gaiaClass('deep', 30 * D));
 
-    // Poisson & BPT Interval updates & tooltips
+    // Poisson & BPT Interval updates & tooltips (updated cleanly without redundant DOM writes)
+    let minBucket = Math.floor(nowMs / 10000);
     let renderInterval = (elemId, stat) => {
         let el = document.getElementById(elemId);
         if (!el) return;
         if (stat && stat.p50Gap && stat.p90Gap) {
             let p50Str = formatDuration(stat.p50Gap, false);
             let p90Str = formatDuration(stat.p90Gap, false);
-            let elapsed = stat.lastEq ? Math.max(0, Date.now() - stat.lastEq.time) : 0;
+            let elapsed = stat.lastEq ? Math.max(0, nowMs - stat.lastEq.time) : 0;
             let pElapsed = Math.min(99.9, (1 - Math.exp(-elapsed / stat.effGap)) * 100);
             if (elapsed > stat.effGap) {
                 let bpt = calculateBPTStrain(elapsed, stat.effGap, stat.shapeK || 1.6);
-                el.textContent = `P50: ~${p50Str} · BPT: ${bpt.strain.toFixed(1)}x (${(bpt.pCond1h * 100).toFixed(0)}%/h)`;
-                el.style.color = '#ff6666';
-                el.title = `Poisson Interval: P50 ~${p50Str}, P90 ~${p90Str}.\n⚠️ OVERDUE (BPT/Weibull k=${(stat.shapeK || 1.6).toFixed(2)}):\nAccumulated Strain Factor: ${bpt.strain.toFixed(2)}x\nConditional Hazard Rate: ${(bpt.pCond1h * 100).toFixed(1)}%/h\nClick for formula details.`;
+                let t = `P50: ~${p50Str} · BPT: ${bpt.strain.toFixed(1)}x (${(bpt.pCond1h * 100).toFixed(0)}%/h)`;
+                let ti = (_predDomCache[elemId]?.b !== minBucket)
+                    ? `Poisson Interval: P50 ~${p50Str}, P90 ~${p90Str}.\n⚠️ OVERDUE (BPT/Weibull k=${(stat.shapeK || 1.6).toFixed(2)}):\nAccumulated Strain Factor: ${bpt.strain.toFixed(2)}x\nConditional Hazard Rate: ${(bpt.pCond1h * 100).toFixed(1)}%/h\nClick for formula details.`
+                    : undefined;
+                _setPredDom(el, elemId, t, '#ff6666', ti);
             } else {
-                el.textContent = `P50: ~${p50Str} · P90: ~${p90Str}`;
-                el.style.color = '';
-                el.title = `Poisson Interval: 50% chance within ${p50Str}, 90% within ${p90Str}.\nProbability elapsed since last quake: ${pElapsed.toFixed(1)}% (Gaia: ${gaiaChargeMultiplier.toFixed(2)}x)\nClick for formula details.`;
+                let t = `P50: ~${p50Str} · P90: ~${p90Str}`;
+                let ti = (_predDomCache[elemId]?.b !== minBucket)
+                    ? `Poisson Interval: 50% chance within ${p50Str}, 90% within ${p90Str}.\nProbability elapsed since last quake: ${pElapsed.toFixed(1)}% (Gaia: ${gaiaChargeMultiplier.toFixed(2)}x)\nClick for formula details.`
+                    : undefined;
+                _setPredDom(el, elemId, t, '', ti);
             }
+            if (_predDomCache[elemId]) _predDomCache[elemId].b = minBucket;
         } else {
-            el.textContent = 'P50: ... · P90: ...';
+            _setPredDom(el, elemId, 'P50: ... · P90: ...', undefined, undefined);
         }
     };
 
@@ -1092,36 +1161,39 @@ function updatePrediction() {
     currentLunarTide = getLunarTidalStress();
     let ltEl = document.getElementById('stat-lunar-phase');
     if (ltEl) {
-        ltEl.textContent = `${currentLunarTide.icon} ${currentLunarTide.phaseName} (${currentLunarTide.stressPercent}%)`;
-        ltEl.style.color = currentLunarTide.color;
-        ltEl.title = `Moon Phase & Solid Earth Tides: ${currentLunarTide.phaseName} (${currentLunarTide.icon})\nGravitational Tidal Stress: ${currentLunarTide.stressLevel} (${currentLunarTide.stressPercent}%)\nCoulomb Trigger Factor: ${currentLunarTide.multiplier.toFixed(2)}x\n(Click for physical details)`;
+        let ltText = `${currentLunarTide.icon} ${currentLunarTide.phaseName} (${currentLunarTide.stressPercent}%)`;
+        let ltTitle = (_predDomCache['stat-lunar-phase']?.b !== minBucket)
+            ? `Moon Phase & Solid Earth Tides: ${currentLunarTide.phaseName} (${currentLunarTide.icon})\nGravitational Tidal Stress: ${currentLunarTide.stressLevel} (${currentLunarTide.stressPercent}%)\nCoulomb Trigger Factor: ${currentLunarTide.multiplier.toFixed(2)}x\n(Click for physical details)`
+            : undefined;
+        _setPredDom(ltEl, 'stat-lunar-phase', ltText, currentLunarTide.color, ltTitle);
+        if (_predDomCache['stat-lunar-phase']) _predDomCache['stat-lunar-phase'].b = minBucket;
     }
 
     // Update Tectonic Migration Flow in UI
     let tfEl = document.getElementById('stat-tectonic-flow');
     if (tfEl) {
         if (activeFlowSummary.count > 0) {
-            tfEl.textContent = `${activeFlowSummary.label}`;
-            tfEl.style.color = '#ffaa00';
-            tfEl.title = `Tectonic Rhythm & Migration Flow: ${activeFlowSummary.count} active vectors (48h)\nDominant Migration: ${activeFlowSummary.label}\nLatest Vector: ${activeFlowSummary.fromPlace} ➔ ${activeFlowSummary.toPlace}\n(Click for details and vectors)`;
+            let tfTitle = `Tectonic Rhythm & Migration Flow: ${activeFlowSummary.count} active vectors (48h)\nDominant Migration: ${activeFlowSummary.label}\nLatest Vector: ${activeFlowSummary.fromPlace} ➔ ${activeFlowSummary.toPlace}\n(Click for details and vectors)`;
+            _setPredDom(tfEl, 'stat-tectonic-flow', `${activeFlowSummary.label}`, '#ffaa00', tfTitle);
         } else {
-            tfEl.textContent = 'Equilibrium';
-            tfEl.style.color = '#88bbff';
-            tfEl.title = 'Tectonic Rhythm: No significant directional stress migration detected (Equilibrium).';
+            _setPredDom(tfEl, 'stat-tectonic-flow', 'Equilibrium', '#88bbff', 'Tectonic Rhythm: No significant directional stress migration detected (Equilibrium).');
         }
     }
 
     let setTooltip = (id, stat, label) => {
         let el = document.getElementById(id);
-        if (el && stat) {
-            let elapsed = stat.lastEq ? Math.max(0, Date.now() - stat.lastEq.time) : 0;
+        let tipKey = id + '__tip';
+        if (el && stat && _predDomCache[tipKey]?.b !== minBucket) {
+            let elapsed = stat.lastEq ? Math.max(0, nowMs - stat.lastEq.time) : 0;
             let curP = Math.min(99.9, (1 - Math.exp(-elapsed / stat.effGap)) * 100);
             let bptNote = "";
             if (elapsed > stat.effGap) {
                 let bpt = calculateBPTStrain(elapsed, stat.effGap, stat.shapeK || 1.6);
                 bptNote = `\n⚠️ BPT-Strain: ${bpt.strain.toFixed(2)}x (+${(bpt.pCond1h * 100).toFixed(1)}%/h)`;
             }
-            el.title = `${label}: Expected in ~${formatDuration(stat.effGap, false)} (P50: ~${formatDuration(stat.p50Gap, false)}, P90: ~${formatDuration(stat.p90Gap, false)}).\nCurrent Probability: ${curP.toFixed(1)}% | Gaia: ${gaiaChargeMultiplier.toFixed(2)}x${bptNote}\n(Click for details)`;
+            let tip = `${label}: Expected in ~${formatDuration(stat.effGap, false)} (P50: ~${formatDuration(stat.p50Gap, false)}, P90: ~${formatDuration(stat.p90Gap, false)}).\nCurrent Probability: ${curP.toFixed(1)}% | Gaia: ${gaiaChargeMultiplier.toFixed(2)}x${bptNote}\n(Click for details)`;
+            _setPredDom(el, tipKey, undefined, undefined, tip);
+            _predDomCache[tipKey].b = minBucket;
         }
     };
     setTooltip('prediction-timer', shortTermStat, 'M3+ Short');
@@ -1289,11 +1361,7 @@ function resize() {
         height = nextH;
         canvas.width = width;
         canvas.height = height;
-        if (typeof requestAnimationFrame === 'function') {
-            requestAnimationFrame(() => {
-                if (typeof draw === 'function' && typeof earthquakes !== 'undefined') draw();
-            });
-        }
+        if (typeof _staticLayerKey !== 'undefined') _staticLayerKey = '';
     }
 }
 window.addEventListener('resize', resize);
@@ -1439,25 +1507,49 @@ async function fetchEarthquakes() {
         
         rawEarthquakes.sort((a, b) => b.time - a.time);
         
-        earthquakes = [];
+        var cachedShockTriggers = window.cachedShockTriggers || [];
+        let nextEarthquakes = [];
         for (let i = 0; i < rawEarthquakes.length; i++) {
             let eq = rawEarthquakes[i];
             let isDuplicate = false;
-            for (let j = 0; j < earthquakes.length; j++) {
-                let e = earthquakes[j];
-                if (Math.abs(eq.time - e.time) < 300000 && haversineDistance(eq.lat, eq.lon, e.lat, e.lon) < 180.0) {
+            for (let j = 0; j < nextEarthquakes.length; j++) {
+                let e = nextEarthquakes[j];
+                if (Math.abs(eq.time - e.time) < 300000 && Math.abs(eq.lat - e.lat) <= 1.65 && haversineDistance(eq.lat, eq.lon, e.lat, e.lon) < 180.0) {
                     isDuplicate = true;
-                    if (eq.mag > e.mag) earthquakes[j] = eq;
+                    if (eq.mag > e.mag) nextEarthquakes[j] = eq;
                     break;
                 }
             }
             if (!isDuplicate) {
                 // Ensure strictly last 24 hours (86400000 ms)
                 if (Date.now() - eq.time < 86400000) {
-                    earthquakes.push(eq);
+                    let rEq = ((90.0 - eq.lat) / 180.0) * 723.0;
+                    let aEq = eq.lon * Math.PI / 180.0;
+                    eq._ux = rEq * Math.sin(aEq);
+                    eq._uy = rEq * Math.cos(aEq);
+                    nextEarthquakes.push(eq);
                 }
             }
         }
+        earthquakes = nextEarthquakes;
+        // Precompute Shock Triggers once per fetch instead of O(N^2) haversine inside every 60fps draw() frame
+        let triggers = [];
+        let nowTr = Date.now();
+        for (let i = 0; i < earthquakes.length; i++) {
+            let newerEq = earthquakes[i];
+            if (nowTr - newerEq.time > 86400000) break;
+            for (let j = i + 1; j < earthquakes.length; j++) {
+                let olderEq = earthquakes[j];
+                if (nowTr - olderEq.time > 86400000 * 2) break;
+                if (olderEq.mag >= 5.0 && Math.abs(newerEq.lat - olderEq.lat) <= 15.0) {
+                    let shockRadius = calculateShockRadius(olderEq.mag);
+                    if (haversineDistance(newerEq.lat, newerEq.lon, olderEq.lat, olderEq.lon) <= shockRadius) {
+                        triggers.push([newerEq, olderEq]);
+                    }
+                }
+            }
+        }
+        window.cachedShockTriggers = triggers;
         
         eqList.innerHTML = '';
         let totalMainCount = earthquakes.length;
@@ -1645,9 +1737,6 @@ async function fetchEarthquakes() {
             shortTermM4Stat = getSmartPrediction(eqsM4);
             predictedNextTimeM4 = shortTermM4Stat ? shortTermM4Stat.nextTime : 0;
         }
-
-        // Global 24h & matrix recalculation
-        gaiaRecomputeAll(true);
         
         // Calculate predicted spatial cluster regions & kinematic fault-boundary projections
         predictedTectonicTargets = [];
@@ -1727,34 +1816,65 @@ function getRelativeTime(timestamp) {
     return `${diffHours}h ago`;
 }
 
-// Render ticker items
-function renderTicker() {
+// Render ticker items (only rebuilds DOM & animation when feed items actually change)
+let _lastTickerSig = '';
+function renderTicker(forceRestart) {
     if (!tickerContent) return;
-    
+
+    // Keep all active tsunamis + cap unrest items so GPU layer texture width stays well below 16384px
+    let displayVolcanoes = volcanoData;
+    if (volcanoData.length > 18) {
+        let selected = volcanoData.slice(0, 12);
+        let seen = new Set(selected);
+        for (let i = 12; i < volcanoData.length && selected.length < 18; i++) {
+            if (volcanoData[i].mag >= 5.5 && !seen.has(volcanoData[i])) {
+                selected.push(volcanoData[i]);
+                seen.add(volcanoData[i]);
+            }
+        }
+        displayVolcanoes = selected;
+    }
+
+    let sig = tsunamiData.map(t => `${t.timestamp}_${t.region}`).join('|') + '||' +
+              displayVolcanoes.map(v => `${v.timestamp}_${v.name}`).join('|');
+
+    if (!forceRestart && sig === _lastTickerSig && tickerContent.children.length > 0) {
+        refreshTickerAges();
+        return;
+    }
+    _lastTickerSig = sig;
+
     let html = '';
-    
-    tsunamiData.forEach(t => {
+    for (let i = 0; i < tsunamiData.length; i++) {
+        let t = tsunamiData[i];
         let timeStr = getRelativeTime(t.timestamp);
-        html += `<span class="ticker-item ticker-tsunami">🌊 TSUNAMI: [${timeStr}] ${t.region} - ${t.level}</span>`;
-    });
-    
-    volcanoData.forEach(v => {
+        html += `<span class="ticker-item ticker-tsunami">🌊 TSUNAMI: [<span class="ticker-ts" data-ts="${t.timestamp}">${timeStr}</span>] ${t.region} - ${t.level}</span>`;
+    }
+    for (let i = 0; i < displayVolcanoes.length; i++) {
+        let v = displayVolcanoes[i];
         let timeStr = getRelativeTime(v.timestamp);
-        html += `<span class="ticker-item ticker-volcano">🌋 VOLCANO: [${timeStr}] ${v.name} - ${v.status}</span>`;
-    });
-    
+        html += `<span class="ticker-item ticker-volcano">🌋 VOLCANO: [<span class="ticker-ts" data-ts="${v.timestamp}">${timeStr}</span>] ${v.name} - ${v.status}</span>`;
+    }
+
     tickerContent.innerHTML = html;
-    
-    // Set duration based on number of items (~8 seconds per item)
-    const totalItems = tsunamiData.length + volcanoData.length;
-    const duration = Math.max(60, totalItems * 8); // Minimum 60s
-    
-    // Reset animation so it scrolls in cleanly from the right
+
+    // Consistent ~90 px/s scroll speed across actual content width so text never jumps or exceeds GPU texture limits
     if (tickerScroll) {
+        let scrollW = Math.max(window.innerWidth || 1200, tickerContent.offsetWidth + (window.innerWidth || 1200));
+        let duration = Math.max(30, Math.round(scrollW / 90));
         tickerScroll.style.animationDuration = `${duration}s`;
-        tickerScroll.style.animationName = 'none';
-        tickerScroll.offsetHeight; /* trigger reflow */
-        tickerScroll.style.animationName = 'ticker'; 
+    }
+}
+
+function refreshTickerAges() {
+    if (!tickerContent) return;
+    let nodes = tickerContent.querySelectorAll('.ticker-ts');
+    for (let i = 0; i < nodes.length; i++) {
+        let el = nodes[i];
+        let ts = Number(el.getAttribute('data-ts'));
+        if (!ts) continue;
+        let nextStr = getRelativeTime(ts);
+        if (el.textContent !== nextStr) el.textContent = nextStr;
     }
 }
 
@@ -1779,6 +1899,7 @@ async function fetchLiveTickers() {
                 // Add significant seismic events to activity ticker
                 volcanoData.push({
                     name: place,
+                    mag: mag,
                     status: `Seismic Unrest - Mag ${mag.toFixed(1)}`,
                     timestamp: time
                 });
@@ -1812,9 +1933,9 @@ async function fetchLiveTickers() {
 // Initial call
 fetchLiveTickers();
 
-// Update relative times every minute
+// Update relative times every minute in-place without resetting marquee position or causing reflow
 setInterval(() => {
-    renderTicker();
+    refreshTickerAges();
 }, 60000);
 
 // Refresh ticker data from API every 5 minutes
@@ -2193,9 +2314,93 @@ function drawGaiaDiagram() {
     gaiaCtx.globalAlpha = 1.0;
 }
 
+const _gaiaDomState = new WeakMap();
+
+function _updateGaiaContainerDom(container, rows, showLoading) {
+    if (!container) return;
+    let rowKey = rows.map(r => r.label).join('|') + '|' + (showLoading ? '1' : '0');
+    let st = _gaiaDomState.get(container);
+    if (!st || st.rowKey !== rowKey) {
+        let html = `<table style="width:100%; border-collapse: collapse; text-align: left; font-size: 12px;">
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.25); color:#aaa;">
+                <th style="padding: 4px 2px;">Class</th>
+                <th style="padding: 4px 2px;">Rhythm</th>
+                <th style="padding: 4px 2px;">Since Last</th>
+                <th style="padding: 4px 2px;">Status</th>
+                <th style="padding: 4px 2px;">P(%)</th>
+                <th style="padding: 4px 2px; min-width:110px;">Progress</th>
+            </tr>`;
+        for (let i = 0; i < rows.length; i++) {
+            let r = rows[i];
+            let data = r.data;
+            let progressPercent = Math.min(100, Math.min(150, data.ratio * 100));
+            let pulseClass = data.ratio >= 1.5 ? 'gaia-bar-critical' : '';
+            let probColor = data.probPercent >= 80 ? '#ff3333' : data.probPercent >= 50 ? '#ff8800' : '#00ffcc';
+            html += `<tr data-gaia-row="${r.label}" style="border-bottom: 1px solid rgba(255,255,255,0.05);" title="Last: M${data.lastMag} — ${data.lastPlace} (${data.count} events, Confidence: ${data.confidence} ${data.sigmaStr})">
+                <td style="padding: 6px 2px; color:${r.color}; font-weight:bold;">${r.label}</td>
+                <td class="g-rhythm" style="padding: 6px 2px; color:#ddd; font-size:11px;">Every ${data.avgStr}</td>
+                <td class="g-last" style="padding: 6px 2px; color:#fff; font-size:11px;">${data.lastStr}</td>
+                <td class="g-status" style="padding: 6px 2px; color:${data.color}; font-weight:bold; font-size:11px;">${data.status}</td>
+                <td class="g-prob" style="padding: 6px 2px; color:${probColor}; font-weight:bold;">${data.probPercent}%</td>
+                <td style="padding: 6px 2px;"><div class="gaia-progress-bar ${pulseClass}"><div class="gaia-progress-fill" style="width:${progressPercent}%; background:${data.color};"></div></div></td>
+            </tr>`;
+        }
+        html += `</table>`;
+        html += `<div style="margin-top:8px; color:#888; font-size:9px; text-align:center;">Hover rows for last event details · P(%) = Poisson probability · Rhythm = Median + EMA blend</div>`;
+        if (showLoading) {
+            html += `<div style="margin-top:10px; color:#ff8800; text-align:center; font-size:11px; animation: pulse 1.5s infinite;">Fetching historical data... (Please wait 1-2s)</div>`;
+        }
+        container.innerHTML = html;
+        let els = {};
+        let trs = container.querySelectorAll('tr[data-gaia-row]');
+        for (let i = 0; i < trs.length; i++) {
+            let tr = trs[i];
+            let lbl = tr.getAttribute('data-gaia-row');
+            els[lbl] = {
+                tr,
+                rhythm: tr.querySelector('.g-rhythm'),
+                last: tr.querySelector('.g-last'),
+                status: tr.querySelector('.g-status'),
+                prob: tr.querySelector('.g-prob'),
+                barWrap: tr.querySelector('.gaia-progress-bar'),
+                barFill: tr.querySelector('.gaia-progress-fill'),
+                prev: {}
+            };
+        }
+        _gaiaDomState.set(container, { rowKey, els });
+        return;
+    }
+
+    // In-place differential updates without rebuilding DOM
+    for (let i = 0; i < rows.length; i++) {
+        let r = rows[i];
+        let data = r.data;
+        let cell = st.els[r.label];
+        if (!cell) continue;
+        let prev = cell.prev;
+        let rhythmText = `Every ${data.avgStr}`;
+        if (prev.r !== rhythmText) { prev.r = rhythmText; cell.rhythm.textContent = rhythmText; }
+        if (prev.l !== data.lastStr) { prev.l = data.lastStr; cell.last.textContent = data.lastStr; }
+        if (prev.s !== data.status) { prev.s = data.status; cell.status.textContent = data.status; }
+        if (prev.sc !== data.color) { prev.sc = data.color; cell.status.style.color = data.color; cell.barFill.style.background = data.color; }
+        let probText = `${data.probPercent}%`;
+        if (prev.p !== probText) { prev.p = probText; cell.prob.textContent = probText; }
+        let probColor = data.probPercent >= 80 ? '#ff3333' : data.probPercent >= 50 ? '#ff8800' : '#00ffcc';
+        if (prev.pc !== probColor) { prev.pc = probColor; cell.prob.style.color = probColor; }
+        let wPct = `${Math.min(100, Math.min(150, data.ratio * 100)).toFixed(1)}%`;
+        if (prev.w !== wPct) { prev.w = wPct; cell.barFill.style.width = wPct; }
+        let crit = data.ratio >= 1.5;
+        if (prev.crit !== crit) { prev.crit = crit; cell.barWrap.classList.toggle('gaia-bar-critical', crit); }
+        let titleText = `Last: M${data.lastMag} — ${data.lastPlace} (${data.count} events, Confidence: ${data.confidence} ${data.sigmaStr})`;
+        if (prev.ti !== titleText) { prev.ti = titleText; cell.tr.title = titleText; }
+    }
+}
+
 function updateGaiaPopup() {
     let statsDiv = document.getElementById('gaia-popup-stats');
-    if (!statsDiv) return;
+    let stripStats = document.getElementById('gaia-strip-stats');
+    let popupVisible = statsDiv && gaiaPopup && !gaiaPopup.classList.contains('hidden');
+    if (!popupVisible && !stripStats) return;
     
     let now = Date.now();
     let formatDur = (ms) => {
@@ -2256,58 +2461,24 @@ function updateGaiaPopup() {
         };
     };
     
-    let m3Stats = calcRhythm(3);
-    let m4Stats = calcRhythm(4);
-    let m5Stats = calcRhythm(5);
-    let m6Stats = calcRhythm(6);
-    let m7Stats = calcRhythm(7);
-    let m8Stats = calcRhythm(8);
-    let m9Stats = calcRhythm(9);
-    
-    let html = `<table style="width:100%; border-collapse: collapse; text-align: left; font-size: 12px;">
-        <tr style="border-bottom: 1px solid rgba(255,255,255,0.25); color:#aaa;">
-            <th style="padding: 4px 2px;">Class</th>
-            <th style="padding: 4px 2px;">Rhythm</th>
-            <th style="padding: 4px 2px;">Since Last</th>
-            <th style="padding: 4px 2px;">Status</th>
-            <th style="padding: 4px 2px;">P(%)</th>
-            <th style="padding: 4px 2px; min-width:110px;">Progress</th>
-        </tr>`;
-        
-    let addRow = (label, data, labelColor) => {
-        if (!data) return;
-        let progressPercent = Math.min(150, data.ratio * 100);
-        let barColor = data.color;
-        let pulseClass = data.ratio >= 1.5 ? 'gaia-bar-critical' : '';
-        let probColor = data.probPercent >= 80 ? '#ff3333' : data.probPercent >= 50 ? '#ff8800' : '#00ffcc';
-        html += `<tr style="border-bottom: 1px solid rgba(255,255,255,0.05);" title="Last: M${data.lastMag} — ${data.lastPlace} (${data.count} events, Confidence: ${data.confidence} ${data.sigmaStr})">
-            <td style="padding: 6px 2px; color:${labelColor}; font-weight:bold;">${label}</td>
-            <td style="padding: 6px 2px; color:#ddd; font-size:11px;">Every ${data.avgStr}</td>
-            <td style="padding: 6px 2px; color:#fff; font-size:11px;">${data.lastStr}</td>
-            <td style="padding: 6px 2px; color:${data.color}; font-weight:bold; font-size:11px;">${data.status}</td>
-            <td style="padding: 6px 2px; color:${probColor}; font-weight:bold;">${data.probPercent}%</td>
-            <td style="padding: 6px 2px;"><div class="gaia-progress-bar ${pulseClass}"><div class="gaia-progress-fill" style="width:${Math.min(100, progressPercent)}%; background:${barColor};"></div></div></td>
-        </tr>`;
-    };
-    
-    if (m3Stats) addRow('M3+', m3Stats, '#c8c800');
-    if (m4Stats) addRow('M4+', m4Stats, '#ff8800');
-    if (m5Stats) addRow('M5+', m5Stats, '#ff5555');
-    if (m6Stats) addRow('M6+', m6Stats, '#ff3333');
-    if (m7Stats) addRow('M7+', m7Stats, '#ff33ff');
-    if (m8Stats) addRow('M8+', m8Stats, '#ff00ff');
-    if (m9Stats) addRow('M9+', m9Stats, '#aa00ff');
-    
-    html += `</table>`;
-    html += `<div style="margin-top:8px; color:#888; font-size:9px; text-align:center;">Hover rows for last event details · P(%) = Poisson probability · Rhythm = Median + EMA blend</div>`;
-    
-    if (historicalM5Eqs.length === 0 || historicalM7Eqs.length === 0 || historicalM8Eqs.length === 0 || historicalM9Eqs.length === 0) {
-        html += `<div style="margin-top:10px; color:#ff8800; text-align:center; font-size:11px; animation: pulse 1.5s infinite;">Fetching historical data... (Please wait 1-2s)</div>`;
+    let classes = [
+        { label: 'M3+', kind: 3, color: '#c8c800' },
+        { label: 'M4+', kind: 4, color: '#ff8800' },
+        { label: 'M5+', kind: 5, color: '#ff5555' },
+        { label: 'M6+', kind: 6, color: '#ff3333' },
+        { label: 'M7+', kind: 7, color: '#ff33ff' },
+        { label: 'M8+', kind: 8, color: '#ff00ff' },
+        { label: 'M9+', kind: 9, color: '#aa00ff' }
+    ];
+    let rows = [];
+    for (let i = 0; i < classes.length; i++) {
+        let st = calcRhythm(classes[i].kind);
+        if (st) rows.push({ label: classes[i].label, color: classes[i].color, data: st });
     }
-    
-    statsDiv.innerHTML = html;
-    let stripStats = document.getElementById('gaia-strip-stats');
-    if (stripStats) stripStats.innerHTML = html;
+    let showLoading = historicalM5Eqs.length === 0 || historicalM7Eqs.length === 0 || historicalM8Eqs.length === 0 || historicalM9Eqs.length === 0;
+
+    if (popupVisible) _updateGaiaContainerDom(statsDiv, rows, showLoading);
+    if (stripStats) _updateGaiaContainerDom(stripStats, rows, showLoading);
 }
 
 // Matrix card in the dashboard strip opens the detailed explanation popup
@@ -2556,17 +2727,68 @@ const PLATE_DRIFT_ANCHORS = [
     { code: 'ANT', lat: -78.0, lon: 40.0   }
 ];
 
+function ensureStaticUnitBuffers() {
+    let rad = Math.PI / 180.0;
+    if (!forecastState.coastUnitXY && typeof coast_lines !== 'undefined') {
+        let arr = new Float32Array(coast_lines.length * 4);
+        for (let i = 0; i < coast_lines.length; i++) {
+            let l = coast_lines[i];
+            let r1 = ((90.0 - l[1]) / 180.0) * 723.0;
+            let a1 = l[0] * rad;
+            let r2 = ((90.0 - l[3]) / 180.0) * 723.0;
+            let a2 = l[2] * rad;
+            let b = i * 4;
+            arr[b] = r1 * Math.sin(a1);
+            arr[b + 1] = r1 * Math.cos(a1);
+            arr[b + 2] = r2 * Math.sin(a2);
+            arr[b + 3] = r2 * Math.cos(a2);
+        }
+        forecastState.coastUnitXY = arr;
+    }
+    if (!forecastState.plateUnitXY && typeof tectonic_plates !== 'undefined') {
+        let arr = new Float32Array(tectonic_plates.length * 4);
+        let b0 = [], b1 = [], b2 = [];
+        let hasModel = (typeof TectonicModel !== 'undefined' && TectonicModel.segMeta);
+        for (let i = 0; i < tectonic_plates.length; i++) {
+            let s = tectonic_plates[i];
+            let r1 = ((90.0 - s[1]) / 180.0) * 723.0;
+            let a1 = s[0] * rad;
+            let r2 = ((90.0 - s[3]) / 180.0) * 723.0;
+            let a2 = s[2] * rad;
+            let b = i * 4;
+            arr[b] = r1 * Math.sin(a1);
+            arr[b + 1] = r1 * Math.cos(a1);
+            arr[b + 2] = r2 * Math.sin(a2);
+            arr[b + 3] = r2 * Math.cos(a2);
+            let rc = hasModel ? TectonicModel.segMeta[i][2] : 0;
+            if (rc === 1) b1.push(b);
+            else if (rc === 2) b2.push(b);
+            else b0.push(b);
+        }
+        forecastState.plateUnitXY = arr;
+        forecastState.plateRegimeIndices = [
+            new Int32Array(b0),
+            new Int32Array(b1),
+            new Int32Array(b2)
+        ];
+    }
+}
+
 function buildDriftCache(years) {
     if (years <= 0 || typeof TectonicModel === 'undefined' || typeof tectonic_plates === 'undefined') {
         forecastState.driftCacheYears = 0;
         forecastState.driftedPlates = null;
         forecastState.driftedCoast = null;
+        forecastState.driftedPlatesUnitXY = null;
+        forecastState.driftedCoastUnitXY = null;
         forecastState.driftAnchors = null;
         return;
     }
     if (forecastState.driftCacheYears === years && forecastState.driftedPlates) return;
 
+    let rad = Math.PI / 180.0;
     let pArr = new Float32Array(tectonic_plates.length * 4);
+    let pUnit = new Float32Array(tectonic_plates.length * 4);
     for (let i = 0; i < tectonic_plates.length; i++) {
         let s = tectonic_plates[i];
         let m = TectonicModel.segMeta ? TectonicModel.segMeta[i] : null;
@@ -2576,13 +2798,25 @@ function buildDriftCache(years) {
         let baseIdx = i * 4;
         pArr[baseIdx] = lo1; pArr[baseIdx + 1] = la1;
         pArr[baseIdx + 2] = lo2; pArr[baseIdx + 3] = la2;
+        let r1 = ((90.0 - la1) / 180.0) * 723.0, a1 = lo1 * rad;
+        let r2 = ((90.0 - la2) / 180.0) * 723.0, a2 = lo2 * rad;
+        let ux1 = r1 * Math.sin(a1), uy1 = r1 * Math.cos(a1);
+        let ux2 = r2 * Math.sin(a2), uy2 = r2 * Math.cos(a2);
+        if (Math.hypot(ux2 - ux1, uy2 - uy1) > 120.0) {
+            pUnit[baseIdx] = NaN;
+        } else {
+            pUnit[baseIdx] = ux1; pUnit[baseIdx + 1] = uy1;
+            pUnit[baseIdx + 2] = ux2; pUnit[baseIdx + 3] = uy2;
+        }
     }
     forecastState.driftedPlates = pArr;
+    forecastState.driftedPlatesUnitXY = pUnit;
 
     if (typeof coast_lines !== 'undefined') {
         ensureCoastPlateCache();
         let cCache = forecastState.coastPlateCache;
         let cArr = new Float32Array(coast_lines.length * 4);
+        let cUnit = new Float32Array(coast_lines.length * 4);
         for (let i = 0; i < coast_lines.length; i++) {
             let l = coast_lines[i];
             let p1 = cCache ? cCache[i * 2] : TectonicModel.getPlateIdxAt(l[1], l[0]);
@@ -2592,12 +2826,18 @@ function buildDriftCache(years) {
             let b = i * 4;
             if (p1 !== p2 && haversineDistance(la1, lo1, la2, lo2) > 420.0) {
                 cArr[b] = NaN;
+                cUnit[b] = NaN;
             } else {
                 cArr[b] = lo1; cArr[b + 1] = la1;
                 cArr[b + 2] = lo2; cArr[b + 3] = la2;
+                let r1 = ((90.0 - la1) / 180.0) * 723.0, a1 = lo1 * rad;
+                let r2 = ((90.0 - la2) / 180.0) * 723.0, a2 = lo2 * rad;
+                cUnit[b] = r1 * Math.sin(a1); cUnit[b + 1] = r1 * Math.cos(a1);
+                cUnit[b + 2] = r2 * Math.sin(a2); cUnit[b + 3] = r2 * Math.cos(a2);
             }
         }
         forecastState.driftedCoast = cArr;
+        forecastState.driftedCoastUnitXY = cUnit;
     }
 
     let anchors = [];
@@ -2751,21 +2991,86 @@ function startForecastPlayback() {
     updateForecastUI();
 })();
 
-function strokeSegmentBatch(segmentsFloatOrPairs, isFlatFloat32, mapCx, mapCy, scale) {
-    ctx.beginPath();
+function strokeUnitBatch(unitArr, mapCx, mapCy, scale, targetCtx) {
+    let c = targetCtx || ctx;
+    c.beginPath();
+    let n = unitArr.length;
+    let wLim = width + 20, hLim = height + 20;
+    let chainUx = NaN, chainUy = NaN;
+    let anchorX = NaN, anchorY = NaN;
+    let movedToAnchor = false;
+    for (let i = 0; i < n; i += 4) {
+        let ux1 = unitArr[i];
+        if (ux1 !== ux1) { // fast NaN skip
+            chainUx = NaN;
+            continue;
+        }
+        let uy1 = unitArr[i + 1];
+        let ux2 = unitArr[i + 2];
+        let uy2 = unitArr[i + 3];
+        let px1 = mapCx + ux1 * scale;
+        let py1 = mapCy + uy1 * scale;
+        let px2 = mapCx + ux2 * scale;
+        let py2 = mapCy + uy2 * scale;
+        if ((px1 < -20 && px2 < -20) || (px1 > wLim && px2 > wLim) ||
+            (py1 < -20 && py2 < -20) || (py1 > hLim && py2 > hLim)) {
+            chainUx = NaN;
+            continue;
+        }
+        if (Math.abs(ux1 - chainUx) > 1e-6 || Math.abs(uy1 - chainUy) > 1e-6) {
+            anchorX = px1;
+            anchorY = py1;
+            movedToAnchor = false;
+        }
+        chainUx = ux2;
+        chainUy = uy2;
+        if (Math.abs(px2 - anchorX) + Math.abs(py2 - anchorY) < 0.65) {
+            continue;
+        }
+        if (!movedToAnchor) {
+            c.moveTo(anchorX, anchorY);
+            movedToAnchor = true;
+        }
+        c.lineTo(px2, py2);
+        anchorX = px2;
+        anchorY = py2;
+    }
+    c.stroke();
+}
+
+function strokeSegmentBatch(segmentsFloatOrPairs, isFlatFloat32, mapCx, mapCy, scale, targetCtx) {
+    if (!isFlatFloat32) {
+        ensureStaticUnitBuffers();
+        if (typeof coast_lines !== 'undefined' && segmentsFloatOrPairs === coast_lines && forecastState.coastUnitXY) {
+            strokeUnitBatch(forecastState.coastUnitXY, mapCx, mapCy, scale, targetCtx);
+            return;
+        }
+        if (typeof tectonic_plates !== 'undefined' && segmentsFloatOrPairs === tectonic_plates && forecastState.plateUnitXY) {
+            strokeUnitBatch(forecastState.plateUnitXY, mapCx, mapCy, scale, targetCtx);
+            return;
+        }
+    } else {
+        if (forecastState.driftedCoast && segmentsFloatOrPairs === forecastState.driftedCoast && forecastState.driftedCoastUnitXY) {
+            strokeUnitBatch(forecastState.driftedCoastUnitXY, mapCx, mapCy, scale, targetCtx);
+            return;
+        }
+    }
+    let c = targetCtx || ctx;
+    let wLim = width + 20, hLim = height + 20;
+    c.beginPath();
     if (isFlatFloat32) {
         for (let i = 0; i < segmentsFloatOrPairs.length; i += 4) {
             let lo1 = segmentsFloatOrPairs[i];
-            if (Number.isNaN(lo1)) continue;
+            if (lo1 !== lo1) continue;
             let la1 = segmentsFloatOrPairs[i + 1];
             let lo2 = segmentsFloatOrPairs[i + 2];
             let la2 = segmentsFloatOrPairs[i + 3];
             let [px1, py1] = projectMapXY(la1, lo1, mapCx, mapCy, scale);
             let [px2, py2] = projectMapXY(la2, lo2, mapCx, mapCy, scale);
-            if ((px1 > -20 && px1 < width + 20 && py1 > -20 && py1 < height + 20) ||
-                (px2 > -20 && px2 < width + 20 && py2 > -20 && py2 < height + 20)) {
-                ctx.moveTo(px1, py1);
-                ctx.lineTo(px2, py2);
+            if ((px1 > -20 && px1 < wLim && py1 > -20 && py1 < hLim) ||
+                (px2 > -20 && px2 < wLim && py2 > -20 && py2 < hLim)) {
+                c.moveTo(px1, py1);
+                c.lineTo(px2, py2);
             }
         }
     } else {
@@ -2773,89 +3078,101 @@ function strokeSegmentBatch(segmentsFloatOrPairs, isFlatFloat32, mapCx, mapCy, s
             let l = segmentsFloatOrPairs[i];
             let [px1, py1] = projectMapXY(l[1], l[0], mapCx, mapCy, scale);
             let [px2, py2] = projectMapXY(l[3], l[2], mapCx, mapCy, scale);
-            if ((px1 > -20 && px1 < width + 20 && py1 > -20 && py1 < height + 20) ||
-                (px2 > -20 && px2 < width + 20 && py2 > -20 && py2 < height + 20)) {
-                ctx.moveTo(px1, py1);
-                ctx.lineTo(px2, py2);
+            if ((px1 > -20 && px1 < wLim && py1 > -20 && py1 < hLim) ||
+                (px2 > -20 && px2 < wLim && py2 > -20 && py2 < hLim)) {
+                c.moveTo(px1, py1);
+                c.lineTo(px2, py2);
             }
         }
     }
-    ctx.stroke();
+    c.stroke();
 }
 
-function drawPlateBoundariesLayer(mapCx, mapCy, scale) {
+function drawPlateBoundariesLayer(mapCx, mapCy, scale, targetCtx) {
     if (typeof tectonic_plates === 'undefined') return;
+    let c = targetCtx || ctx;
     let hasModel = (typeof TectonicModel !== 'undefined' && TectonicModel.segMeta);
     let years = forecastState.horizonYears || 0;
+    let wLim = width + 20, hLim = height + 20;
+    ensureStaticUnitBuffers();
 
     if (years > 0 && forecastState.driftedPlates) {
         // Present-day reference boundaries dimly dashed
-        ctx.save();
-        ctx.strokeStyle = "rgba(180, 170, 200, 0.20)";
-        ctx.lineWidth = 0.85;
-        ctx.setLineDash([4, 4]);
-        strokeSegmentBatch(tectonic_plates, false, mapCx, mapCy, scale);
-        ctx.restore();
+        c.save();
+        c.strokeStyle = "rgba(180, 170, 200, 0.20)";
+        c.lineWidth = 0.85;
+        c.setLineDash([4, 4]);
+        strokeUnitBatch(forecastState.plateUnitXY, mapCx, mapCy, scale, c);
+        c.restore();
 
         // Future drifted plate boundaries colored by kinematic regime
-        let dArr = forecastState.driftedPlates;
+        let dUnit = forecastState.driftedPlatesUnitXY;
         let styles = [
             "rgba(255, 190, 60, 0.88)",  // 0: Transform
             "rgba(255, 65, 85, 0.92)",   // 1: Convergent
             "rgba(0, 235, 255, 0.88)"    // 2: Divergent
         ];
-        ctx.lineWidth = 1.6;
+        c.lineWidth = 1.6;
+        let bins = forecastState.plateRegimeIndices;
         for (let rc = 0; rc < 3; rc++) {
-            ctx.beginPath();
-            ctx.strokeStyle = styles[rc];
-            for (let i = 0; i < tectonic_plates.length; i++) {
-                let metaR = hasModel ? TectonicModel.segMeta[i][2] : 0;
-                if (metaR !== rc) continue;
-                let b = i * 4;
-                let [px1, py1] = projectMapXY(dArr[b + 1], dArr[b], mapCx, mapCy, scale);
-                let [px2, py2] = projectMapXY(dArr[b + 3], dArr[b + 2], mapCx, mapCy, scale);
-                if (Math.hypot(px2 - px1, py2 - py1) > 120 * scale) continue;
-                if ((px1 > -20 && px1 < width + 20 && py1 > -20 && py1 < height + 20) ||
-                    (px2 > -20 && px2 < width + 20 && py2 > -20 && py2 < height + 20)) {
-                    ctx.moveTo(px1, py1);
-                    ctx.lineTo(px2, py2);
+            c.beginPath();
+            c.strokeStyle = styles[rc];
+            let idxArr = (hasModel && bins) ? bins[rc] : (rc === 0 ? null : []);
+            if (idxArr) {
+                for (let k = 0; k < idxArr.length; k++) {
+                    let b = idxArr[k];
+                    let ux1 = dUnit[b];
+                    if (ux1 !== ux1) continue;
+                    let uy1 = dUnit[b + 1], ux2 = dUnit[b + 2], uy2 = dUnit[b + 3];
+                    let px1 = mapCx + ux1 * scale, py1 = mapCy + uy1 * scale;
+                    let px2 = mapCx + ux2 * scale, py2 = mapCy + uy2 * scale;
+                    if ((px1 > -20 && px1 < wLim && py1 > -20 && py1 < hLim) ||
+                        (px2 > -20 && px2 < wLim && py2 > -20 && py2 < hLim)) {
+                        c.moveTo(px1, py1);
+                        c.lineTo(px2, py2);
+                    }
                 }
+            } else if (!hasModel && rc === 0 && dUnit) {
+                strokeUnitBatch(dUnit, mapCx, mapCy, scale, c);
+                continue;
             }
-            ctx.stroke();
+            c.stroke();
         }
         return;
     }
 
-    if (forecastState.showPlates && hasModel) {
+    if (forecastState.showPlates && hasModel && forecastState.plateRegimeIndices) {
         let styles = [
             "rgba(255, 185, 50, 0.42)",  // 0: Transform
             "rgba(255, 70, 90, 0.56)",   // 1: Convergent Subduction
             "rgba(0, 220, 255, 0.48)"    // 2: Divergent Rift
         ];
-        ctx.lineWidth = 1.25;
+        let pUnit = forecastState.plateUnitXY;
+        let bins = forecastState.plateRegimeIndices;
+        c.lineWidth = 1.25;
         for (let rc = 0; rc < 3; rc++) {
-            ctx.beginPath();
-            ctx.strokeStyle = styles[rc];
-            for (let i = 0; i < tectonic_plates.length; i++) {
-                if (TectonicModel.segMeta[i][2] !== rc) continue;
-                let l = tectonic_plates[i];
-                let [px1, py1] = projectMapXY(l[1], l[0], mapCx, mapCy, scale);
-                let [px2, py2] = projectMapXY(l[3], l[2], mapCx, mapCy, scale);
-                if ((px1 > -20 && px1 < width + 20 && py1 > -20 && py1 < height + 20) ||
-                    (px2 > -20 && px2 < width + 20 && py2 > -20 && py2 < height + 20)) {
-                    ctx.moveTo(px1, py1);
-                    ctx.lineTo(px2, py2);
+            c.beginPath();
+            c.strokeStyle = styles[rc];
+            let idxArr = bins[rc];
+            for (let k = 0; k < idxArr.length; k++) {
+                let b = idxArr[k];
+                let px1 = mapCx + pUnit[b] * scale, py1 = mapCy + pUnit[b + 1] * scale;
+                let px2 = mapCx + pUnit[b + 2] * scale, py2 = mapCy + pUnit[b + 3] * scale;
+                if ((px1 > -20 && px1 < wLim && py1 > -20 && py1 < hLim) ||
+                    (px2 > -20 && px2 < wLim && py2 > -20 && py2 < hLim)) {
+                    c.moveTo(px1, py1);
+                    c.lineTo(px2, py2);
                 }
             }
-            ctx.stroke();
+            c.stroke();
         }
 
         // Draw sparse NNR-MORVEL56 velocity vectors
         ensurePlateVelSamples();
         let vs = forecastState.plateVelSamples;
         if (vs && vs.length > 0 && zoom >= 0.6) {
-            ctx.save();
-            ctx.lineWidth = 1.2;
+            c.save();
+            c.lineWidth = 1.2;
             for (let i = 0; i < vs.length; i++) {
                 let s = vs[i];
                 let [px1, py1] = projectMapXY(s.lat, s.lon, mapCx, mapCy, scale);
@@ -2869,60 +3186,71 @@ function drawPlateBoundariesLayer(mapCx, mapCy, scale) {
                 let px2 = px1 + (dx / norm) * arrowLen;
                 let py2 = py1 + (dy / norm) * arrowLen;
                 let col = s.regime === 1 ? "rgba(255, 95, 110, 0.78)" : (s.regime === 2 ? "rgba(0, 230, 255, 0.75)" : "rgba(255, 200, 70, 0.75)");
-                ctx.strokeStyle = col;
-                ctx.fillStyle = col;
-                ctx.beginPath();
-                ctx.moveTo(px1, py1);
-                ctx.lineTo(px2, py2);
-                ctx.stroke();
+                c.strokeStyle = col;
+                c.fillStyle = col;
+                c.beginPath();
+                c.moveTo(px1, py1);
+                c.lineTo(px2, py2);
+                c.stroke();
                 let ang = Math.atan2(py2 - py1, px2 - px1);
-                ctx.beginPath();
-                ctx.moveTo(px2, py2);
-                ctx.lineTo(px2 - 4.5 * Math.cos(ang - 0.5), py2 - 4.5 * Math.sin(ang - 0.5));
-                ctx.lineTo(px2 - 4.5 * Math.cos(ang + 0.5), py2 - 4.5 * Math.sin(ang + 0.5));
-                ctx.closePath();
-                ctx.fill();
+                c.beginPath();
+                c.moveTo(px2, py2);
+                c.lineTo(px2 - 4.5 * Math.cos(ang - 0.5), py2 - 4.5 * Math.sin(ang - 0.5));
+                c.lineTo(px2 - 4.5 * Math.cos(ang + 0.5), py2 - 4.5 * Math.sin(ang + 0.5));
+                c.closePath();
+                c.fill();
             }
-            ctx.restore();
+            c.restore();
         }
-    } else {
-        ctx.strokeStyle = "rgba(255, 105, 180, 0.35)";
-        ctx.lineWidth = 1;
-        strokeSegmentBatch(tectonic_plates, false, mapCx, mapCy, scale);
+    } else if (forecastState.plateUnitXY) {
+        c.strokeStyle = "rgba(255, 105, 180, 0.35)";
+        c.lineWidth = 1;
+        strokeUnitBatch(forecastState.plateUnitXY, mapCx, mapCy, scale, c);
     }
 }
 
-function drawEtasForecastLayer(mapCx, mapCy, scale) {
+function drawEtasForecastLayer(mapCx, mapCy, scale, targetCtx, includeAnimatedGaps) {
     if (!forecastState.showEtas || forecastState.horizonYears > 0) return;
+    let c = targetCtx || ctx;
     let isForecastMode = forecastState.horizonKey !== '0';
     let cells = forecastState.etasCells;
     if (cells && cells.length > 0) {
         let cellR = Math.max(8, 220.0 * 0.03618 * scale);
         let alphaGain = isForecastMode ? 0.50 : 0.16;
-        ctx.save();
+        c.save();
         for (let i = 0; i < cells.length; i++) {
-            let [la, lo, normV, etasShare] = cells[i];
-            let [px, py] = projectMapXY(la, lo, mapCx, mapCy, scale);
-            if (px + cellR < 0 || px - cellR > width || py + cellR < 0 || py - cellR > height) continue;
+            let cell = cells[i];
+            let la = cell[0], lo = cell[1], normV = cell[2], etasShare = cell[3];
+            let ux = cell[4], uy = cell[5];
+            if (ux === undefined) {
+                let r = ((90.0 - la) / 180.0) * 723.0;
+                let ang = lo * Math.PI / 180.0;
+                ux = cell[4] = r * Math.sin(ang);
+                uy = cell[5] = r * Math.cos(ang);
+            }
+            let px = mapCx + ux * scale;
+            let py = mapCy + uy * scale;
+            let rad = cellR * (0.7 + normV * 0.6);
+            if (px + rad < 0 || px - rad > width || py + rad < 0 || py - rad > height) continue;
             let a = Math.min(0.65, normV * alphaGain);
             let rCol = 255;
             let gCol = etasShare > 0.12 ? 75 : Math.round(190 * (1.0 - normV * 0.65));
             let bCol = etasShare > 0.12 ? 210 : 30;
-            let grad = ctx.createRadialGradient(px, py, 0, px, py, cellR * (0.7 + normV * 0.6));
+            let grad = c.createRadialGradient(px, py, 0, px, py, rad);
             grad.addColorStop(0, `rgba(${rCol}, ${gCol}, ${bCol}, ${a.toFixed(3)})`);
             grad.addColorStop(1, `rgba(${rCol}, ${gCol}, ${bCol}, 0)`);
-            ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.arc(px, py, cellR * (0.7 + normV * 0.6), 0, Math.PI * 2);
-            ctx.fill();
+            c.fillStyle = grad;
+            c.beginPath();
+            c.arc(px, py, rad, 0, Math.PI * 2);
+            c.fill();
         }
-        ctx.restore();
+        c.restore();
     }
 
     // Bilateral fault rupture corridor cones along strike for Top-5 ETAS hotspots
     if (isForecastMode && cachedHotspotsData && cachedHotspotsData.length > 0) {
         let corrR = Math.max(10, 260.0 * 0.03618 * scale);
-        ctx.save();
+        c.save();
         for (let i = 0; i < Math.min(5, cachedHotspotsData.length); i++) {
             let h = cachedHotspotsData[i];
             if (!h || h.strikeDeg === undefined) continue;
@@ -2934,68 +3262,80 @@ function drawEtasForecastLayer(mapCx, mapCy, scale) {
             let scrAng = Math.atan2(pyS - py, pxS - px);
             for (let dir = 0; dir < 2; dir++) {
                 let aCenter = scrAng + dir * Math.PI;
-                ctx.beginPath();
-                ctx.moveTo(px, py);
-                ctx.arc(px, py, corrR, aCenter - 0.30, aCenter + 0.30);
-                ctx.closePath();
-                ctx.fillStyle = h.etas_active ? "rgba(255, 85, 60, 0.16)" : "rgba(255, 195, 50, 0.11)";
-                ctx.fill();
-                ctx.strokeStyle = h.etas_active ? "rgba(255, 100, 70, 0.55)" : "rgba(255, 200, 60, 0.42)";
-                ctx.lineWidth = 1.0;
-                ctx.stroke();
+                c.beginPath();
+                c.moveTo(px, py);
+                c.arc(px, py, corrR, aCenter - 0.30, aCenter + 0.30);
+                c.closePath();
+                c.fillStyle = h.etas_active ? "rgba(255, 85, 60, 0.16)" : "rgba(255, 195, 50, 0.11)";
+                c.fill();
+                c.strokeStyle = h.etas_active ? "rgba(255, 100, 70, 0.55)" : "rgba(255, 200, 60, 0.42)";
+                c.lineWidth = 1.0;
+                c.stroke();
             }
         }
-        ctx.restore();
+        c.restore();
     }
 
-    // Active high-convergence Seismic Gaps (>= 35 mm/yr without recent M5.5+ rupture)
+    if (includeAnimatedGaps !== false) {
+        drawSeismicGapsOverlay(c, mapCx, mapCy, scale);
+    }
+}
+
+function drawSeismicGapsOverlay(targetCtx, mapCx, mapCy, scale) {
+    if (!forecastState.showEtas || forecastState.horizonYears > 0 || forecastState.horizonKey === '0') return;
+    let c = targetCtx || ctx;
     let gaps = forecastState.seismicGaps;
-    if (isForecastMode && gaps && gaps.length > 0) {
+    if (gaps && gaps.length > 0) {
         let pulseGap = 0.5 + 0.5 * Math.sin(Date.now() / 320.0);
         let gapR = Math.max(7, 210.0 * 0.03618 * scale);
-        ctx.save();
+        c.save();
+        c.fillStyle = `rgba(255, 60, 140, ${(0.07 + 0.06 * pulseGap).toFixed(3)})`;
+        c.strokeStyle = `rgba(255, 90, 180, ${(0.55 + 0.35 * pulseGap).toFixed(3)})`;
+        c.lineWidth = 1.4;
+        if (zoom >= 0.85) {
+            c.font = "bold 9px monospace";
+            c.textAlign = "center";
+        }
         for (let i = 0; i < gaps.length; i++) {
             let g = gaps[i];
             let [px, py] = projectMapXY(g.lat, g.lon, mapCx, mapCy, scale);
             if (px + gapR < 0 || px - gapR > width || py + gapR < 0 || py - gapR > height) continue;
-            ctx.beginPath();
-            ctx.arc(px, py, gapR, 0, Math.PI * 2);
-            ctx.fillStyle = `rgba(255, 60, 140, ${(0.07 + 0.06 * pulseGap).toFixed(3)})`;
-            ctx.fill();
-            ctx.setLineDash([4, 3]);
-            ctx.strokeStyle = `rgba(255, 90, 180, ${(0.55 + 0.35 * pulseGap).toFixed(3)})`;
-            ctx.lineWidth = 1.4;
-            ctx.stroke();
+            c.setLineDash([4, 3]);
+            c.beginPath();
+            c.arc(px, py, gapR, 0, Math.PI * 2);
+            c.fill();
+            c.stroke();
             if (zoom >= 0.85) {
-                ctx.setLineDash([]);
-                ctx.fillStyle = "rgba(255, 175, 220, 0.92)";
-                ctx.font = "bold 9px monospace";
-                ctx.textAlign = "center";
-                ctx.fillText(`GAP ${g.convMmYr}mm/y`, px, py - gapR - 3);
+                c.setLineDash([]);
+                c.fillStyle = "rgba(255, 175, 220, 0.92)";
+                c.fillText(`GAP ${g.convMmYr}mm/y`, px, py - gapR - 3);
+                c.fillStyle = `rgba(255, 60, 140, ${(0.07 + 0.06 * pulseGap).toFixed(3)})`;
             }
         }
-        ctx.restore();
+        c.restore();
     }
 }
 
-function drawCoastlinesLayer(mapCx, mapCy, scale) {
+function drawCoastlinesLayer(mapCx, mapCy, scale, targetCtx) {
     if (typeof coast_lines === 'undefined') return;
+    let c = targetCtx || ctx;
+    ensureStaticUnitBuffers();
     if (forecastState.horizonYears > 0 && forecastState.driftedCoast) {
         // Faint present-day coastlines for visual continental displacement comparison
-        ctx.strokeStyle = "rgba(100, 180, 120, 0.28)";
-        ctx.lineWidth = 1.0;
-        strokeSegmentBatch(coast_lines, false, mapCx, mapCy, scale);
+        c.strokeStyle = "rgba(100, 180, 120, 0.28)";
+        c.lineWidth = 1.0;
+        strokeUnitBatch(forecastState.coastUnitXY, mapCx, mapCy, scale, c);
 
         // Luminous drifted future coastlines
-        ctx.strokeStyle = "rgba(85, 255, 195, 0.94)";
-        ctx.lineWidth = 1.65;
-        strokeSegmentBatch(forecastState.driftedCoast, true, mapCx, mapCy, scale);
+        c.strokeStyle = "rgba(85, 255, 195, 0.94)";
+        c.lineWidth = 1.65;
+        strokeUnitBatch(forecastState.driftedCoastUnitXY || forecastState.coastUnitXY, mapCx, mapCy, scale, c);
 
         // Draw Rodrigues Euler plate displacement trajectories when motion is measurable
         if (forecastState.driftAnchors && forecastState.horizonYears >= 10000) {
-            ctx.save();
-            ctx.font = "bold 9px monospace";
-            ctx.textAlign = "center";
+            c.save();
+            c.font = "bold 9px monospace";
+            c.textAlign = "center";
             for (let a of forecastState.driftAnchors) {
                 let [px1, py1] = projectMapXY(a.lat1, a.lon1, mapCx, mapCy, scale);
                 let [px2, py2] = projectMapXY(a.lat2, a.lon2, mapCx, mapCy, scale);
@@ -3007,61 +3347,102 @@ function drawCoastlinesLayer(mapCx, mapCy, scale) {
                 let dispLen = Math.max(pixLen, 10);
                 let ex = px1 + ((px2 - px1) / pixLen) * dispLen;
                 let ey = py1 + ((py2 - py1) / pixLen) * dispLen;
-                ctx.beginPath();
-                ctx.moveTo(px1, py1);
-                ctx.lineTo(ex, ey);
-                ctx.strokeStyle = "rgba(255, 195, 65, 0.92)";
-                ctx.lineWidth = 1.8;
-                ctx.stroke();
+                c.beginPath();
+                c.moveTo(px1, py1);
+                c.lineTo(ex, ey);
+                c.strokeStyle = "rgba(255, 195, 65, 0.92)";
+                c.lineWidth = 1.8;
+                c.stroke();
 
                 let ang = Math.atan2(ey - py1, ex - px1);
-                ctx.fillStyle = "rgba(255, 205, 80, 0.96)";
-                ctx.beginPath();
-                ctx.moveTo(ex, ey);
-                ctx.lineTo(ex - 5 * Math.cos(ang - 0.5), ey - 5 * Math.sin(ang - 0.5));
-                ctx.lineTo(ex - 5 * Math.cos(ang + 0.5), ey - 5 * Math.sin(ang + 0.5));
-                ctx.closePath();
-                ctx.fill();
+                c.fillStyle = "rgba(255, 205, 80, 0.96)";
+                c.beginPath();
+                c.moveTo(ex, ey);
+                c.lineTo(ex - 5 * Math.cos(ang - 0.5), ey - 5 * Math.sin(ang - 0.5));
+                c.lineTo(ex - 5 * Math.cos(ang + 0.5), ey - 5 * Math.sin(ang + 0.5));
+                c.closePath();
+                c.fill();
 
                 if (forecastState.horizonYears >= 500000) {
                     if (zoom >= 1.05 || (a.code !== 'COC' && a.code !== 'ARB' && a.code !== 'PH')) {
                         let lbl = zoom >= 1.05 ? `${a.code} +${a.km}km` : a.code;
-                        ctx.fillStyle = "rgba(255, 220, 120, 0.92)";
-                        ctx.fillText(lbl, ex, ey - 5);
+                        c.fillStyle = "rgba(255, 220, 120, 0.92)";
+                        c.fillText(lbl, ex, ey - 5);
                     }
                 }
             }
-            ctx.restore();
+            c.restore();
         }
-    } else {
-        ctx.strokeStyle = "rgba(120, 220, 120, 0.8)";
-        ctx.lineWidth = 1.5;
-        strokeSegmentBatch(coast_lines, false, mapCx, mapCy, scale);
+    } else if (forecastState.coastUnitXY) {
+        c.strokeStyle = "rgba(120, 220, 120, 0.8)";
+        c.lineWidth = 1.5;
+        strokeUnitBatch(forecastState.coastUnitXY, mapCx, mapCy, scale, c);
     }
 }
 
+const _bgLayerCanvas = document.getElementById('bgMapCanvas') || document.createElement('canvas');
+const _bgLayerCtx = _bgLayerCanvas.getContext('2d');
+const _fgCoastCanvas = document.getElementById('fgCoastCanvas') || document.createElement('canvas');
+const _fgCoastCtx = _fgCoastCanvas.getContext('2d');
+var _staticLayerKey = '';
+let _drawRafId = null;
+
+function scheduleNextDraw() {
+    if (!_drawRafId) {
+        _drawRafId = requestAnimationFrame(draw);
+    }
+}
+
+function ensureOffscreenStaticLayers(mapCx, mapCy, scale) {
+    let key = `${width}|${height}|${zoom}|${offsetX}|${offsetY}|${forecastState.horizonKey}|${forecastState.horizonYears || 0}|${forecastState.showPlates ? 1 : 0}|${forecastState.showEtas ? 1 : 0}|${forecastState.etasRev || 0}|${forecastState.driftCacheYears || 0}`;
+    if (key === _staticLayerKey) return;
+    if (_bgLayerCanvas.width !== width || _bgLayerCanvas.height !== height) {
+        _bgLayerCanvas.width = width;
+        _bgLayerCanvas.height = height;
+        _fgCoastCanvas.width = width;
+        _fgCoastCanvas.height = height;
+    } else {
+        _bgLayerCtx.clearRect(0, 0, width, height);
+        _fgCoastCtx.clearRect(0, 0, width, height);
+    }
+    drawEtasForecastLayer(mapCx, mapCy, scale, _bgLayerCtx, false);
+    drawPlateBoundariesLayer(mapCx, mapCy, scale, _bgLayerCtx);
+    drawCoastlinesLayer(mapCx, mapCy, scale, _fgCoastCtx);
+    _staticLayerKey = key;
+}
+
 function draw() {
+    _drawRafId = null;
+    if (document.hidden) {
+        scheduleNextDraw();
+        return;
+    }
     ctx.clearRect(0, 0, width, height);
     
     let mapCx = width / 2 + offsetX;
     let mapCy = height / 2 + offsetY;
     let scale = (Math.min(width, height) * 0.45 / 723.0) * zoom;
     
-    drawEtasForecastLayer(mapCx, mapCy, scale);
-    drawPlateBoundariesLayer(mapCx, mapCy, scale);
+    ensureOffscreenStaticLayers(mapCx, mapCy, scale);
+    drawSeismicGapsOverlay(ctx, mapCx, mapCy, scale);
     
     let now = Date.now();
     let isDeepDrift = forecastState.horizonYears >= 10000;
+    let rad = Math.PI / 180.0;
 
     // --- Draw Dynamic 300 km Hotspot Zones (from live/server ETAS model) ---
     if (!isDeepDrift && cachedHotspotsData && cachedHotspotsData.length > 0) {
+        let radiusPx = Math.max(6, 300.0 * 0.03618 * scale);
         for (let i = 0; i < Math.min(cachedHotspotsData.length, 5); i++) {
             let h = cachedHotspotsData[i];
-            let r = ((90.0 - h.lat) / 180.0) * 723.0;
-            let angle = h.lon * Math.PI / 180.0;
-            let px = mapCx + (r * Math.sin(angle)) * scale;
-            let py = mapCy + (r * Math.cos(angle)) * scale;
-            let radiusPx = Math.max(6, 300.0 * 0.03618 * scale);
+            if (h._ux === undefined) {
+                let r = ((90.0 - h.lat) / 180.0) * 723.0;
+                let ang = h.lon * rad;
+                h._ux = r * Math.sin(ang);
+                h._uy = r * Math.cos(ang);
+            }
+            let px = mapCx + h._ux * scale;
+            let py = mapCy + h._uy * scale;
 
             if (px + radiusPx < 0 || px - radiusPx > width || py + radiusPx < 0 || py - radiusPx > height) {
                 continue;
@@ -3093,13 +3474,16 @@ function draw() {
         if (eq.mag >= 5.0) {
             let shockRadiusKm = calculateShockRadius(eq.mag);
             let radiusPx = shockRadiusKm * 0.03618 * scale;
+            if (eq._ux === undefined) {
+                let r = ((90.0 - eq.lat) / 180.0) * 723.0;
+                let a = eq.lon * rad;
+                eq._ux = r * Math.sin(a);
+                eq._uy = r * Math.cos(a);
+            }
+            let px = mapCx + eq._ux * scale;
+            let py = mapCy + eq._uy * scale;
             
-            let r = ((90.0 - eq.lat) / 180.0) * 723.0;
-            let angle = eq.lon * Math.PI / 180.0;
-            let px = mapCx + (r * Math.sin(angle)) * scale;
-            let py = mapCy + (r * Math.cos(angle)) * scale;
-            
-            let pulseTimeLocal = (Date.now() / 500) + i;
+            let pulseTimeLocal = (now / 500) + i;
             let pulseSize = radiusPx + Math.sin(pulseTimeLocal) * (radiusPx * 0.05);
             
             ctx.beginPath();
@@ -3118,15 +3502,14 @@ function draw() {
     
     for (let i = 0; i < earthquakes.length; i++) {
         let eq = earthquakes[i];
-        
-        let r = ((90.0 - eq.lat) / 180.0) * 723.0;
-        let angle = eq.lon * Math.PI / 180.0;
-        
-        let map_x = r * Math.sin(angle);
-        let map_y = r * Math.cos(angle);
-        
-        let px = mapCx + map_x * scale;
-        let py = mapCy + map_y * scale;
+        if (eq._ux === undefined) {
+            let r = ((90.0 - eq.lat) / 180.0) * 723.0;
+            let a = eq.lon * rad;
+            eq._ux = r * Math.sin(a);
+            eq._uy = r * Math.cos(a);
+        }
+        let px = mapCx + eq._ux * scale;
+        let py = mapCy + eq._uy * scale;
         
         let baseR = eq.mag * 1.5 * zoom;
         let rSize = baseR + pulse * eq.mag * zoom;
@@ -3134,8 +3517,7 @@ function draw() {
         if (px + rSize > 0 && px - rSize < width && py + rSize > 0 && py - rSize < height) {
             ctx.beginPath();
             ctx.arc(px, py, rSize, 0, Math.PI * 2);
-            let color = eq.mag >= 5.0 ? '255,50,50' : (eq.mag >= 3.0 ? '255,136,0' : '200,200,0');
-            ctx.fillStyle = `rgba(${color}, 0.7)`;
+            ctx.fillStyle = eq.mag >= 5.0 ? 'rgba(255,50,50,0.7)' : (eq.mag >= 3.0 ? 'rgba(255,136,0,0.7)' : 'rgba(200,200,0,0.7)');
             ctx.fill();
             
             if (eq.mag >= 4.5) {
@@ -3151,7 +3533,6 @@ function draw() {
     }
     
     // --- Sonar Chain & Shock Triggers ---
-    
     // Draw chain reaction lines between consecutive quakes in the last 15 minutes
     for (let i = 0; i < earthquakes.length - 1; i++) {
         let eq1 = earthquakes[i];
@@ -3163,15 +3544,10 @@ function draw() {
         let diffMs = Math.abs(eq1.time - eq2.time);
         if (diffMs > 900000) continue; // Only connect if they happened within 15 minutes of each other
         
-        let r1 = ((90.0 - eq1.lat) / 180.0) * 723.0;
-        let angle1 = eq1.lon * Math.PI / 180.0;
-        let px1 = mapCx + (r1 * Math.sin(angle1)) * scale;
-        let py1 = mapCy + (r1 * Math.cos(angle1)) * scale;
-        
-        let r2 = ((90.0 - eq2.lat) / 180.0) * 723.0;
-        let angle2 = eq2.lon * Math.PI / 180.0;
-        let px2 = mapCx + (r2 * Math.sin(angle2)) * scale;
-        let py2 = mapCy + (r2 * Math.cos(angle2)) * scale;
+        let px1 = mapCx + eq1._ux * scale;
+        let py1 = mapCy + eq1._uy * scale;
+        let px2 = mapCx + eq2._ux * scale;
+        let py2 = mapCy + eq2._uy * scale;
         
         let opacity = Math.max(0.1, 1.0 - (ageMs / 900000));
         
@@ -3183,61 +3559,45 @@ function draw() {
         ctx.stroke();
     }
     
-    // Detect & Draw Shock Triggers (Newer quake within Shock Radius of older M5+)
-    for (let i = 0; i < earthquakes.length; i++) {
-        let newerEq = earthquakes[i];
-        if (now - newerEq.time > 86400000) break; // Only check newer quakes from last 24h
-        
-        for (let j = i + 1; j < earthquakes.length; j++) {
-            let olderEq = earthquakes[j];
-            if (now - olderEq.time > 86400000 * 2) break; // Check older quakes up to 48h
-            
-            if (olderEq.mag >= 5.0) {
-                let distKm = haversineDistance(newerEq.lat, newerEq.lon, olderEq.lat, olderEq.lon);
-                let shockRadius = calculateShockRadius(olderEq.mag);
-                
-                if (distKm <= shockRadius) {
-                    // Trigger detected!
-                    let r1 = ((90.0 - newerEq.lat) / 180.0) * 723.0;
-                    let angle1 = newerEq.lon * Math.PI / 180.0;
-                    let px1 = mapCx + (r1 * Math.sin(angle1)) * scale;
-                    let py1 = mapCy + (r1 * Math.cos(angle1)) * scale;
-                    
-                    let r2 = ((90.0 - olderEq.lat) / 180.0) * 723.0;
-                    let angle2 = olderEq.lon * Math.PI / 180.0;
-                    let px2 = mapCx + (r2 * Math.sin(angle2)) * scale;
-                    let py2 = mapCy + (r2 * Math.cos(angle2)) * scale;
-                    
-                    ctx.beginPath();
-                    ctx.moveTo(px1, py1);
-                    ctx.lineTo(px2, py2);
-                    ctx.strokeStyle = `rgba(255, 0, 0, 0.8)`; // Bright red trigger line
-                    ctx.lineWidth = 3;
-                    ctx.setLineDash([5, 5]);
-                    ctx.stroke();
-                    ctx.setLineDash([]);
-                }
-            }
+    // Draw precomputed Shock Triggers (computed once per catalog fetch)
+    let shockPairs = window.cachedShockTriggers;
+    if (shockPairs && shockPairs.length > 0) {
+        ctx.save();
+        ctx.strokeStyle = "rgba(255, 0, 0, 0.8)";
+        ctx.lineWidth = 3;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        for (let i = 0; i < shockPairs.length; i++) {
+            let eqNew = shockPairs[i][0];
+            let eqOld = shockPairs[i][1];
+            ctx.moveTo(mapCx + eqNew._ux * scale, mapCy + eqNew._uy * scale);
+            ctx.lineTo(mapCx + eqOld._ux * scale, mapCy + eqOld._uy * scale);
         }
+        ctx.stroke();
+        ctx.restore();
     }
     
     // --- Tectonic Migration & Stress Flow Streamlines ---
     if (activeTectonicFlows && activeTectonicFlows.length > 0) {
-        let flowDashOffset = (Date.now() / 35) % 24;
+        let flowDashOffset = (now / 35) % 24;
         for (let i = 0; i < activeTectonicFlows.length; i++) {
             let f = activeTectonicFlows[i];
             let e1 = f.from;
             let e2 = f.to;
-            
-            let r1 = ((90.0 - e1.lat) / 180.0) * 723.0;
-            let a1 = e1.lon * Math.PI / 180.0;
-            let px1 = mapCx + (r1 * Math.sin(a1)) * scale;
-            let py1 = mapCy + (r1 * Math.cos(a1)) * scale;
-            
-            let r2 = ((90.0 - e2.lat) / 180.0) * 723.0;
-            let a2 = e2.lon * Math.PI / 180.0;
-            let px2 = mapCx + (r2 * Math.sin(a2)) * scale;
-            let py2 = mapCy + (r2 * Math.cos(a2)) * scale;
+            let ux1 = e1._ux, uy1 = e1._uy;
+            if (ux1 === undefined) {
+                let r1 = ((90.0 - e1.lat) / 180.0) * 723.0, a1 = e1.lon * rad;
+                ux1 = e1._ux = r1 * Math.sin(a1); uy1 = e1._uy = r1 * Math.cos(a1);
+            }
+            let ux2 = e2._ux, uy2 = e2._uy;
+            if (ux2 === undefined) {
+                let r2 = ((90.0 - e2.lat) / 180.0) * 723.0, a2 = e2.lon * rad;
+                ux2 = e2._ux = r2 * Math.sin(a2); uy2 = e2._uy = r2 * Math.cos(a2);
+            }
+            let px1 = mapCx + ux1 * scale;
+            let py1 = mapCy + uy1 * scale;
+            let px2 = mapCx + ux2 * scale;
+            let py2 = mapCy + uy2 * scale;
             
             if ((px1 < -50 && px2 < -50) || (px1 > width + 50 && px2 > width + 50) ||
                 (py1 < -50 && py2 < -50) || (py1 > height + 50 && py2 > height + 50)) {
@@ -3279,8 +3639,8 @@ function draw() {
 
     // --- Seismo-Tectonic Kinematic Target Projections (Predicted Next Fault Epicenters) ---
     if (predictedTectonicTargets && predictedTectonicTargets.length > 0) {
-        let targetPulse = (Math.sin(Date.now() / 220.0) + 1.0) * 0.5;
-        let dashAnim = (Date.now() / 25) % 16;
+        let targetPulse = (Math.sin(now / 220.0) + 1.0) * 0.5;
+        let dashAnim = (now / 25) % 16;
         for (let tIdx = 0; tIdx < predictedTectonicTargets.length; tIdx++) {
             let pt = predictedTectonicTargets[tIdx];
             if (!pt || (pt.lat === 0 && pt.lon === 0)) continue;
@@ -3289,7 +3649,7 @@ function draw() {
             let glowCol = isM4Target ? "rgba(255, 60, 220, 0.22)" : "rgba(0, 255, 255, 0.22)";
 
             let rT = ((90.0 - pt.lat) / 180.0) * 723.0;
-            let aT = pt.lon * Math.PI / 180.0;
+            let aT = pt.lon * rad;
             let pxT = mapCx + (rT * Math.sin(aT)) * scale;
             let pyT = mapCy + (rT * Math.cos(aT)) * scale;
 
@@ -3299,7 +3659,7 @@ function draw() {
             // Draw forward kinematic projection vector from latest cluster origin -> projected fault target
             if (pt.originLat !== undefined && pt.originLon !== undefined && pt.shiftKm >= 5) {
                 let rO = ((90.0 - pt.originLat) / 180.0) * 723.0;
-                let aO = pt.originLon * Math.PI / 180.0;
+                let aO = pt.originLon * rad;
                 let pxO = mapCx + (rO * Math.sin(aO)) * scale;
                 let pyO = mapCy + (rO * Math.cos(aO)) * scale;
 
@@ -3348,15 +3708,10 @@ function draw() {
         let eq2 = earthquakes[1];
         let ageMs = now - eq1.time;
         if (ageMs < 120000) { // Text visible for 2 mins
-            let r1 = ((90.0 - eq1.lat) / 180.0) * 723.0;
-            let angle1 = eq1.lon * Math.PI / 180.0;
-            let px1 = mapCx + (r1 * Math.sin(angle1)) * scale;
-            let py1 = mapCy + (r1 * Math.cos(angle1)) * scale;
-            
-            let r2 = ((90.0 - eq2.lat) / 180.0) * 723.0;
-            let angle2 = eq2.lon * Math.PI / 180.0;
-            let px2 = mapCx + (r2 * Math.sin(angle2)) * scale;
-            let py2 = mapCy + (r2 * Math.cos(angle2)) * scale;
+            let px1 = mapCx + eq1._ux * scale;
+            let py1 = mapCy + eq1._uy * scale;
+            let px2 = mapCx + eq2._ux * scale;
+            let py2 = mapCy + eq2._uy * scale;
             
             let diffMs = Math.abs(eq1.time - eq2.time);
             let diffSecs = Math.floor(diffMs / 1000);
@@ -3386,10 +3741,8 @@ function draw() {
         let ageMs = now - eq.time;
         if (ageMs > 900000) break; // Older than 15 mins
         
-        let r = ((90.0 - eq.lat) / 180.0) * 723.0;
-        let angle = eq.lon * Math.PI / 180.0;
-        let px = mapCx + (r * Math.sin(angle)) * scale;
-        let py = mapCy + (r * Math.cos(angle)) * scale;
+        let px = mapCx + eq._ux * scale;
+        let py = mapCy + eq._uy * scale;
         
         let rippleRadius = (pulseTime * 50) % 150; // Expanding radius
         let rippleOpacity = Math.max(0, 1.0 - (rippleRadius / 150)); // Fade out as it expands
@@ -3419,10 +3772,8 @@ function draw() {
         let ageMs = now - eq.time;
         if (ageMs > 86400000) continue; // Older than 24 hours
         
-        let r = ((90.0 - eq.lat) / 180.0) * 723.0;
-        let angle = eq.lon * Math.PI / 180.0;
-        let px = mapCx + (r * Math.sin(angle)) * scale;
-        let py = mapCy + (r * Math.cos(angle)) * scale;
+        let px = mapCx + eq._ux * scale;
+        let py = mapCy + eq._uy * scale;
         
         // Smaller, inward-flowing rings for Tsunami
         for (let wave = 0; wave < 3; wave++) {
@@ -3455,8 +3806,7 @@ function draw() {
     }
     } // end if (!isDeepDrift)
     
-    // Draw Coastlines ON TOP of earthquakes so islands (and future drifted continents) are crisp
-    drawCoastlinesLayer(mapCx, mapCy, scale);
+    // Coastlines are composited on #fgCoastCanvas (z-index: 3) directly above earthquakes on #mapCanvas (z-index: 2)
     // Draw Autopilot Chain
     if (autopilotChain.length > 1 && autopilotIndex > 0) {
         ctx.beginPath();
@@ -3467,7 +3817,7 @@ function draw() {
         for (let i = 0; i <= validNodes; i++) {
             let eq = autopilotChain[i];
             let r = ((90.0 - eq.lat) / 180.0) * 723.0;
-            let a = eq.lon * Math.PI / 180.0;
+            let a = eq.lon * rad;
             let px = mapCx + (r * Math.sin(a)) * scale;
             let py = mapCy + (r * Math.cos(a)) * scale;
             
@@ -3479,7 +3829,7 @@ function draw() {
         for (let i = 0; i <= validNodes; i++) {
             let eq = autopilotChain[i];
             let r = ((90.0 - eq.lat) / 180.0) * 723.0;
-            let a = eq.lon * Math.PI / 180.0;
+            let a = eq.lon * rad;
             let px = mapCx + (r * Math.sin(a)) * scale;
             let py = mapCy + (r * Math.cos(a)) * scale;
             
@@ -3493,7 +3843,7 @@ function draw() {
         }
     }
 
-    requestAnimationFrame(draw);
+    scheduleNextDraw();
 }
 draw();
 
@@ -4296,20 +4646,50 @@ function flyToCoords(lat, lon) {
 
 // Dynamic Hotspot Engine: computes Top-5 M5+ hotspots directly from the live USGS catalog
 // using Gardner-Knopoff declustering + 250 km Gaussian kernel + 300 km Poisson rate (zero hardcoded data).
+const _gaussGridCache = new Map();
 function addGaussianFieldJS(field, lats, lons, nLon, evLat, evLon, weight, sigmaKm) {
-    let dlat = (3 * sigmaKm) / 111.0;
-    let dlon = dlat / Math.max(0.2, Math.cos(evLat * Math.PI / 180.0));
+    let rad = Math.PI / 180.0;
+    let gridKey = lats.length + '|' + nLon;
+    let trig = _gaussGridCache.get(gridKey);
+    if (!trig) {
+        let sLat = new Float64Array(lats.length);
+        let cLat = new Float64Array(lats.length);
+        let rLon = new Float64Array(nLon);
+        for (let i = 0; i < lats.length; i++) {
+            let lr = lats[i] * rad;
+            sLat[i] = Math.sin(lr);
+            cLat[i] = Math.cos(lr);
+        }
+        for (let j = 0; j < nLon; j++) rLon[j] = lons[j] * rad;
+        trig = { sLat, cLat, rLon };
+        _gaussGridCache.set(gridKey, trig);
+    }
+    let sLat = trig.sLat, cLat = trig.cLat, rLon = trig.rLon;
+    let evLatR = evLat * rad, evLonR = evLon * rad;
+    let sEv = Math.sin(evLatR), cEv = Math.cos(evLatR);
+
+    let maxKm = 3 * sigmaKm;
+    let dlat = maxKm / 111.0;
+    let dlon = dlat / Math.max(0.2, cEv);
+    let minCos = Math.cos(maxKm / 6371.0);
+    let inv2Sig2 = -0.5 / (sigmaKm * sigmaKm);
+    let R2 = 6371.0 * 6371.0;
+
     for (let i = 0; i < lats.length; i++) {
         let cla = lats[i];
         if (Math.abs(cla - evLat) > dlat) continue;
+        let sCell = sLat[i], cCell = cLat[i];
+        let sProd = sEv * sCell, cProd = cEv * cCell;
+        let rowBase = i * nLon;
         for (let j = 0; j < nLon; j++) {
             let clo = lons[j];
             let dl = Math.abs(clo - evLon);
             if (dl > 180) dl = 360 - dl;
             if (dl > dlon) continue;
-            let d = haversineDistance(evLat, evLon, cla, clo);
-            if (d < 3 * sigmaKm) {
-                field[i * nLon + j] += weight * Math.exp(-0.5 * (d / sigmaKm) * (d / sigmaKm));
+            let cosD = sProd + cProd * Math.cos(rLon[j] - evLonR);
+            if (cosD > minCos) {
+                let dArc = cosD >= 1.0 ? 0.0 : Math.acos(cosD);
+                field[rowBase + j] += weight * Math.exp((dArc * dArc * R2) * inv2Sig2);
             }
         }
     }
@@ -4425,7 +4805,8 @@ function computeDynamicHotspotsFromCatalog(overrideHorizonDays) {
     let src = (ds && ds.m5 && ds.m5.length > 0) ? ds.m5.filter(e => e.mag >= 5.0) : [];
     if (src.length < 10) return null;
 
-    let main = declusterGK(src);
+    let main = ds.m5Main || declusterGK(src);
+    if (!ds.m5Main) ds.m5Main = main;
     if (main.length < 3) return null;
     let nowMs = Date.now();
     let newestMs = main[0].time;
@@ -4504,6 +4885,7 @@ function computeDynamicHotspotsFromCatalog(overrideHorizonDays) {
         }
     }
     forecastState.etasCells = cells;
+    forecastState.etasRev = (forecastState.etasRev || 0) + 1;
     forecastState.seismicGaps = computeSeismicGapsFromModel(main, spanDays);
 
     let indices = Array.from({ length: field.length }, (_, idx) => idx);
@@ -4636,6 +5018,7 @@ async function loadHotspots() {
         cachedHotspotsData = data.hotspots;
         if ((!forecastState.etasCells || forecastState.etasCells.length === 0) && Array.isArray(data.cells)) {
             forecastState.etasCells = data.cells.map(c => [c[0], c[1], c[2], 0]);
+            forecastState.etasRev = (forecastState.etasRev || 0) + 1;
         }
         if (earthquakes && earthquakes.length > 0) {
             activeDeepPrecursors = detectDeepPrecursors(earthquakes, cachedHotspotsData);
