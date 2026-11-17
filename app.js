@@ -917,12 +917,14 @@ function gaiaMergeEqs(...arrays) {
     return kept;
 }
 
+let _gaiaDataRev = 0;
 let _gaiaDS = { sig: '', all: [], m5: [], m7: [], m8: [], m9: [], m5Main: null };
 let _gaiaBaseCache = new Map();
 let _gaiaStatCache = new Map();
 
 function gaiaDatasets() {
     let sig = [
+        _gaiaDataRev,
         globalMonthEqs.length, globalMonthEqs.length ? globalMonthEqs[0].id : '',
         earthquakes.length, earthquakes.length ? earthquakes[0].id : '',
         historicalM5Eqs.length, historicalM7Eqs.length, historicalM8Eqs.length, historicalM9Eqs.length
@@ -955,7 +957,9 @@ function gaiaComputeBaseStats(eqsNewestFirst, declusterIt, reuseList) {
     let cv = rawGap > 0 ? (sigma / rawGap) : 0.7;
     // Empirical Weibull/BPT shape k ≈ 1 / CV (clamped physically 1.05..3.2 when n>=5)
     let shapeK = gaps.length >= 4 ? Math.min(3.2, Math.max(1.05, 1.0 / Math.max(0.32, cv))) : 1.6;
-    let last = declusterIt ? list[0] : eqsNewestFirst[0];
+    // Anchor lastEq to the actual newest event in the class so recent M5+/M6+ quakes
+    // (even inside multi-year G-K windows) are never hidden from Since Last / countdowns.
+    let last = (eqsNewestFirst && eqsNewestFirst.length > 0) ? eqsNewestFirst[0] : list[0];
     return {
         n: list.length,
         rawGap: rawGap,
@@ -1532,6 +1536,7 @@ async function fetchEarthquakes() {
             }
         }
         earthquakes = nextEarthquakes;
+        _gaiaDataRev++;
         // Precompute Shock Triggers once per fetch instead of O(N^2) haversine inside every 60fps draw() frame
         let triggers = [];
         let nowTr = Date.now();
@@ -1789,8 +1794,11 @@ async function fetchEarthquakes() {
             }
         }
         
+        if (typeof updateLongTermWindowStats === 'function') updateLongTermWindowStats();
+        if (typeof drawGaiaDiagram === 'function') drawGaiaDiagram();
         gaiaRecomputeAll(true);
         updatePrediction();
+        updateGaiaPopup();
         loadHotspots();
         
         statusDiv.textContent = `${earthquakes.length} earthquakes mapped.`;
@@ -1941,6 +1949,63 @@ setInterval(() => {
 // Refresh ticker data from API every 5 minutes
 setInterval(fetchLiveTickers, 300000);
 
+function updateLongTermWindowStats() {
+    if (!globalMonthEqs || globalMonthEqs.length === 0) return;
+    let ds = (typeof gaiaDatasets === 'function') ? gaiaDatasets() : null;
+    let now = Date.now();
+    let cutoff30d = now - 30 * 86400000;
+    let cutoff7d = now - 7 * 86400000;
+    let monthEqs = (ds && ds.all && ds.all.length > 0)
+        ? ds.all.filter(eq => eq.time >= cutoff30d)
+        : globalMonthEqs;
+    let weekEqs = monthEqs.filter(eq => eq.time >= cutoff7d);
+
+    let summarizeWindow = (eqArray) => {
+        if (eqArray.length < 2) return { count: eqArray.length, region: 'N/A', mag5: 0, mag7: 0, deep: 0 };
+        let regionCounts = {};
+        let maxCount = 0;
+        let bestRegion = eqArray[0].place || 'N/A';
+        let mag5 = 0, mag7 = 0, deep = 0;
+
+        for (let i = 0; i < eqArray.length; i++) {
+            let eq = eqArray[i];
+            if (eq.mag >= 5.0) mag5++;
+            if (eq.mag >= 7.0) mag7++;
+            if (eq.depth >= 150.0) deep++;
+            let cleanR = eq.place || 'Unknown';
+            let ofIndex = cleanR.indexOf(' of ');
+            if (ofIndex > -1) cleanR = cleanR.substring(ofIndex + 4);
+            cleanR = cleanR.trim().toUpperCase();
+            regionCounts[cleanR] = (regionCounts[cleanR] || 0) + 1;
+            if (regionCounts[cleanR] > maxCount) {
+                maxCount = regionCounts[cleanR];
+                bestRegion = cleanR;
+            }
+        }
+        return { count: eqArray.length, region: bestRegion, mag5, mag7, deep };
+    };
+
+    let stats7d = summarizeWindow(weekEqs);
+    let stats30d = summarizeWindow(monthEqs);
+
+    let updateText = (id, text) => {
+        let el = document.getElementById(id);
+        if (el) el.textContent = text;
+    };
+
+    updateText('stat-7d-count', stats7d.count);
+    updateText('stat-7d-mag5', stats7d.mag5);
+    updateText('stat-7d-mag7', stats7d.mag7);
+    updateText('stat-7d-deep', stats7d.deep);
+    updateText('stat-7d-region', stats7d.region);
+
+    updateText('stat-30d-count', stats30d.count);
+    updateText('stat-30d-mag5', stats30d.mag5);
+    updateText('stat-30d-mag7', stats30d.mag7);
+    updateText('stat-30d-deep', stats30d.deep);
+    updateText('stat-30d-region', stats30d.region);
+}
+
 async function fetchLongTermStats() {
     try {
         let resMonth = await fetch('https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_month.geojson');
@@ -1966,85 +2031,13 @@ async function fetchLongTermStats() {
         // Sort newest first
         monthEqs.sort((a, b) => b.time - a.time);
         globalMonthEqs = monthEqs;
+        _gaiaDataRev++;
+        updateLongTermWindowStats();
         if (typeof drawGaiaDiagram === 'function') drawGaiaDiagram();
-        
-        let now = Date.now();
-        let weekEqs = monthEqs.filter(eq => (now - eq.time) < 7 * 86400000);
-        
-        let calculateStats = (eqArray) => {
-            if (eqArray.length < 2) return { count: 0, avgMs: 0, region: 'N/A', mag5: 0, mag7: 0, deep: 0, mag5AvgMs: 0, mag7AvgMs: 0, deepAvgMs: 0, mag5Last: 0, mag7Last: 0, deepLast: 0 };
-            let count = eqArray.length;
-            
-            // Use median of gaps instead of simple division
-            let allGaps = computeGaps(eqArray);
-            let medianGap = median(allGaps);
-            let emaGap = exponentialWeightedAvg(allGaps, 0.3);
-            let avgMs = (medianGap * 0.6 + emaGap * 0.4) / gaiaChargeMultiplier; // Blended and Multiplied
-            
-            let regionCounts = {};
-            let maxCount = 0;
-            let bestRegion = eqArray[0].place;
-            
-            let mag5Eqs = eqArray.filter(eq => eq.mag >= 5.0);
-            let mag7Eqs = eqArray.filter(eq => eq.mag >= 7.0);
-            let deepEqs = eqArray.filter(eq => eq.depth >= 150.0);
-            
-            let calcSubAvg = (subEqs) => {
-                if (subEqs.length < 2) return 0;
-                let subGaps = computeGaps(subEqs);
-                let med = median(subGaps);
-                let ema = exponentialWeightedAvg(subGaps, 0.3);
-                return (med * 0.6 + ema * 0.4) / gaiaChargeMultiplier;
-            };
-            
-            let mag5AvgMs = calcSubAvg(mag5Eqs);
-            let mag7AvgMs = calcSubAvg(mag7Eqs);
-            let deepAvgMs = calcSubAvg(deepEqs);
-            
-            eqArray.forEach(eq => {
-                let cleanR = eq.place;
-                let ofIndex = cleanR.indexOf(' of ');
-                if (ofIndex > -1) cleanR = cleanR.substring(ofIndex + 4);
-                cleanR = cleanR.trim().toUpperCase();
-                regionCounts[cleanR] = (regionCounts[cleanR] || 0) + 1;
-                if (regionCounts[cleanR] > maxCount) {
-                    maxCount = regionCounts[cleanR];
-                    bestRegion = cleanR;
-                }
-            });
-            
-            return { 
-                count, avgMs, region: bestRegion, 
-                mag5: mag5Eqs.length, mag7: mag7Eqs.length, deep: deepEqs.length,
-                mag5AvgMs, mag7AvgMs, deepAvgMs,
-                mag5Last: mag5Eqs.length > 0 ? mag5Eqs[0].time : 0,
-                mag7Last: mag7Eqs.length > 0 ? mag7Eqs[0].time : 0,
-                deepLast: deepEqs.length > 0 ? deepEqs[0].time : 0
-            };
-        };
-        
-        let stats7d = calculateStats(weekEqs);
-        let stats30d = calculateStats(monthEqs);
-
-        let updateText = (id, text) => {
-            let el = document.getElementById(id);
-            if (el) el.textContent = text;
-        };
-        
-        updateText('stat-7d-count', stats7d.count);
-        updateText('stat-7d-mag5', stats7d.mag5);
-        updateText('stat-7d-mag7', stats7d.mag7);
-        updateText('stat-7d-deep', stats7d.deep);
-        updateText('stat-7d-region', stats7d.region);
-        
-        updateText('stat-30d-count', stats30d.count);
-        updateText('stat-30d-mag5', stats30d.mag5);
-        updateText('stat-30d-mag7', stats30d.mag7);
-        updateText('stat-30d-deep', stats30d.deep);
-        updateText('stat-30d-region', stats30d.region);
         
         gaiaRecomputeAll(true);
         updatePrediction();
+        updateGaiaPopup();
         
     } catch(e) {
         console.error("Failed to load long term stats", e);
@@ -2059,12 +2052,14 @@ setInterval(fetchLongTermStats, 3600000); // refresh every hour
 
 async function fetchHistoricalData() {
     let now = new Date();
-    let nowStr = now.toISOString().split('T')[0];
+    let dayMs = 86400000;
+    // Use tomorrow's UTC date as endtime so today's UTC events are never truncated at 00:00 UTC
+    let nowStr = new Date(now.getTime() + dayMs).toISOString().split('T')[0];
 
     // M5+ last 3 years (fetched in 3 yearly chunks to stay under USGS 20k cap & match ETAS 3y KDE)
     try {
-        let dayMs = 86400000;
-        let bounds = [3, 2, 1, 0].map(yr => new Date(now.getTime() - yr * 365 * dayMs).toISOString().split('T')[0]);
+        let bounds = [3, 2, 1].map(yr => new Date(now.getTime() - yr * 365 * dayMs).toISOString().split('T')[0]);
+        bounds.push(nowStr);
         let chunks = await Promise.all([0, 1, 2].map(i =>
             fetch(`https://earthquake.usgs.gov/fdsnws/event/1/query?format=geojson&starttime=${bounds[i]}&endtime=${bounds[i + 1]}&minmagnitude=5.0&limit=20000`)
                 .then(r => r.ok ? r.json() : null)
@@ -2147,7 +2142,9 @@ async function fetchHistoricalData() {
         }
     } catch(e) { console.error("Failed M9+", e); }
     
+    _gaiaDataRev++;
     gaiaRecomputeAll(true);
+    updatePrediction();
     updateGaiaPopup();
     loadHotspots();
 }
@@ -2164,13 +2161,15 @@ function drawGaiaDiagram() {
     
     gaiaCtx.clearRect(0, 0, gaiaCanvas.width, gaiaCanvas.height);
     
-    if (!globalMonthEqs || globalMonthEqs.length === 0) return;
+    let dsAll = (typeof gaiaDatasets === 'function') ? gaiaDatasets().all : null;
+    let pool = (dsAll && dsAll.length > 0) ? dsAll : globalMonthEqs;
+    if (!pool || pool.length === 0) return;
     
     let now = Date.now();
     let timeSpan = 144 * 3600000;
     let cutoff = now - timeSpan;
     
-    let relevantEqs = globalMonthEqs.filter(eq => eq.time >= cutoff);
+    let relevantEqs = pool.filter(eq => eq.time >= cutoff);
     if (relevantEqs.length === 0) return;
     
     let padding = 30;
@@ -2268,8 +2267,8 @@ function drawGaiaDiagram() {
         gaiaCtx.stroke();
     }
     
-    // Draw stems with glow for M5+
-    relevantEqs.forEach(eq => {
+    // Draw stems ascending by magnitude so high-magnitude M5+/M6+ spikes render on top
+    [...relevantEqs].sort((a, b) => a.mag - b.mag).forEach(eq => {
         let timeDiff = eq.time - cutoff;
         let x = padding + (timeDiff / timeSpan) * chartW;
         
@@ -4405,18 +4404,19 @@ function renderSearchResults() {
     if (!searchResultsList) return;
     
     let allEqs = [];
+    let ds = (typeof gaiaDatasets === 'function') ? gaiaDatasets() : null;
     
-    // Combine data based on selected mag
+    // Combine merged live + historical data based on selected mag
     if (currentSearchMag < 5) {
-        allEqs = globalMonthEqs || [];
+        allEqs = (ds && ds.all && ds.all.length) ? ds.all : (globalMonthEqs || []);
     } else if (currentSearchMag >= 5 && currentSearchMag < 7) {
-        allEqs = historicalM5Eqs || [];
+        allEqs = (ds && ds.m5 && ds.m5.length) ? ds.m5 : (historicalM5Eqs || []);
     } else if (currentSearchMag >= 7 && currentSearchMag < 8) {
-        allEqs = historicalM7Eqs || [];
+        allEqs = (ds && ds.m7 && ds.m7.length) ? ds.m7 : (historicalM7Eqs || []);
     } else if (currentSearchMag >= 8 && currentSearchMag < 9) {
-        allEqs = historicalM8Eqs || [];
+        allEqs = (ds && ds.m8 && ds.m8.length) ? ds.m8 : (historicalM8Eqs || []);
     } else if (currentSearchMag >= 9) {
-        allEqs = historicalM9Eqs || [];
+        allEqs = (ds && ds.m9 && ds.m9.length) ? ds.m9 : (historicalM9Eqs || []);
     }
     
     if (allEqs.length === 0) {
