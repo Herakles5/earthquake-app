@@ -1,4 +1,4 @@
-const CACHE_NAME = 'eq-store-v24';
+const CACHE_NAME = 'eq-store-v25';
 const APP_SHELL = [
     './',
     './index.html',
@@ -6,7 +6,8 @@ const APP_SHELL = [
     './style.css',
     './coastlines.js',
     './plates.js',
-    './tectonic_model.js'
+    './tectonic_model.js',
+    './planetary_alignment.js'
 ];
 
 self.addEventListener('install', (e) => {

@@ -42,11 +42,12 @@
                 <a class="donate-btn dojo-btn" href="dojo/" target="_blank" rel="noopener noreferrer" title="AION NEXUS Cyber Boxing Reflex Dojo, Tetris & Reactive Visualizer">🥋 AION NEXUS Dojo</a>
             </div>
 
-            <div class="stat-box strip-card" style="border-color: #ff00ff; cursor: pointer;" onclick="document.getElementById('srModal').style.display='flex'">
-                <h4 style="color: #ff00ff;">SPACE WEATHER &amp; TIDES</h4>
+            <div class="stat-box strip-card" style="border-color: #ff00ff; cursor: pointer;" onclick="document.getElementById('srModal').style.display='flex'; if(typeof updateSpaceWeatherModal==='function') updateSpaceWeatherModal();">
+                <h4 style="color: #ff00ff;">SPACE WEATHER &amp; CELESTIAL</h4>
                 <div class="stat-row"><span class="stat-lbl">Kp-Index:</span> <span id="stat-sr-kp" style="color: #ff88ff;">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Gaia Charge:</span> <span id="stat-sr-charge" style="color: #ff00ff; font-weight: bold;">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Tidal / Moon:</span> <span id="stat-lunar-phase" class="clickable-stat" data-calc="lunar-tide" style="color: #00e5ff; font-weight: bold; cursor: pointer;" title="Solid Earth Tides &amp; Moon Phase (Click for details)">...</span></div>
+                <div class="stat-row"><span class="stat-lbl">Planets:</span> <span id="stat-planetary-align" class="clickable-stat" data-calc="planetary-align" style="color: #ffe066; font-weight: bold; cursor: pointer;" title="Planetary Alignment &amp; Quadrupole Resonance (Click for details)">...</span></div>
                 <div class="stat-row"><span class="stat-lbl">Impact:</span> <span id="stat-sr-impact">...</span></div>
             </div>
 
@@ -241,7 +242,7 @@
                     When the Earth's electromagnetic field (and the Schumann Resonance cavity) is disturbed, it indicates intense energetic build-up.
                 </p>
                 <div style="background: rgba(255, 0, 255, 0.1); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
-                    <h3 style="margin: 0 0 10px 0; color: #ff88ff; font-size: 16px;">Live Status</h3>
+                    <h3 style="margin: 0 0 10px 0; color: #ff88ff; font-size: 16px;">Geomagnetic Live Status (NOAA)</h3>
                     <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
                         <span>Geomagnetic Kp-Index (Live 3h NOAA):</span> <strong id="sr-kp-val" style="color: #ff00ff;">Loading...</strong>
                     </div>
@@ -250,6 +251,33 @@
                     </div>
                     <div style="display: flex; justify-content: space-between;">
                         <span>Gaia Charge Multiplier (0.98×–1.10×):</span> <strong id="sr-mult-val" style="color: #00ffcc;">1.00x</strong>
+                    </div>
+                </div>
+
+                <div style="background: rgba(255, 220, 50, 0.08); border: 1px solid rgba(255, 220, 50, 0.25); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <h3 style="margin: 0; color: #ffe066; font-size: 15px;">🪐 Planetary Alignment &amp; Solar System Resonance</h3>
+                        <span id="sr-planet-level" style="font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 4px; background: rgba(255,220,100,0.2); color: #ffe066;">...</span>
+                    </div>
+                    <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                        <canvas id="srPlanetCanvas" width="160" height="160" style="width: 160px; height: 160px; background: rgba(5,5,15,0.7); border-radius: 8px; border: 1px solid rgba(255,220,100,0.25);"></canvas>
+                        <div style="flex: 1; min-width: 200px; font-size: 12px; line-height: 1.5;">
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="color: #ccc;">Aligned Bodies:</span> <strong id="sr-planet-bodies" style="color: #fff;">...</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="color: #ccc;">Tidal Quadrupole Spread:</span> <strong id="sr-planet-spread" style="color: #88ffcc;">...</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="color: #ccc;">Alignment Index:</span> <strong id="sr-planet-index" style="color: #ffe066;">...</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
+                                <span style="color: #ccc;">Planetary Trigger Factor:</span> <strong id="sr-planet-mult" style="color: #00ffcc;">1.00x</strong>
+                            </div>
+                            <div style="display: flex; justify-content: space-between; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.15);">
+                                <span style="color: #ff88ff; font-weight: bold;">Combined Cosmic Multiplier:</span> <strong id="sr-total-mult" style="color: #ff33ff; font-size: 13px;">1.00x</strong>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <p style="font-size: 12px; color: #888; font-style: italic;">
@@ -448,7 +476,8 @@
     <script src="coastlines.js?v=20261113"></script>
     <script src="plates.js?v=20261113"></script>
     <script src="tectonic_model.js?v=20261113"></script>
-    <script src="app.js?v=20261117"></script>
+    <script src="planetary_alignment.js?v=20261118"></script>
+    <script src="app.js?v=20261118"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {

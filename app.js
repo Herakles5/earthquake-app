@@ -699,6 +699,14 @@ function calculateBPTStrain(elapsedMs, meanGapMs, shapeK = 1.6) {
 
 // ========== D: Solid Earth Tides & Lunar Phase Stress Modulation ==========
 let currentLunarTide = { phaseName: "Moon", icon: "🌕", tidalStress: 0.5, stressLevel: "MODERATE", multiplier: 1.0, color: "#00e5ff" };
+let currentPlanetaryAlignment = null;
+
+function getPlanetaryAlignmentState(nowMs = Date.now()) {
+    if (typeof PlanetaryAlignment !== 'undefined' && PlanetaryAlignment.compute) {
+        return PlanetaryAlignment.compute(nowMs);
+    }
+    return { multiplier: 1.0, index: 0, indexPercent: 0, level: 'NONE', levelColor: '#88aacc', alignment: { bodies: [], spread: 0, center: 0 }, aspects: [] };
+}
 
 function getLunarTidalStress(nowMs = Date.now()) {
     let refNewMoon = 1704974220000; // Jan 11, 2024, 11:57 UTC
@@ -990,7 +998,8 @@ function gaiaStatsFor(eqsNewestFirst, declusterIt) {
     let base = gaiaComputeBaseStats(eqsNewestFirst, declusterIt);
     if (!base) return null;
     let lt = getLunarTidalStress();
-    let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0);
+    let pa = getPlanetaryAlignmentState();
+    let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0) * (pa ? pa.multiplier : 1.0);
     return gaiaApplyMultiplier(base, totalMult);
 }
 
@@ -999,7 +1008,8 @@ function gaiaStatsFor(eqsNewestFirst, declusterIt) {
 function gaiaClass(kind, windowMs) {
     let ds = gaiaDatasets();
     let lt = getLunarTidalStress();
-    let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0);
+    let pa = getPlanetaryAlignmentState();
+    let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0) * (pa ? pa.multiplier : 1.0);
     // Cache base declustered catalog stats independent of tide/charge multipliers and wall-clock minute for unwindowed classes
     let baseKey = windowMs ? (kind + '|' + windowMs + '|' + Math.floor(Date.now() / 60000)) : String(kind);
     let base = _gaiaBaseCache.get(baseKey);
@@ -1172,6 +1182,21 @@ function updatePrediction() {
         _setPredDom(ltEl, 'stat-lunar-phase', ltText, currentLunarTide.color, ltTitle);
         if (_predDomCache['stat-lunar-phase']) _predDomCache['stat-lunar-phase'].b = minBucket;
     }
+
+    // Update Planetary Alignment in UI
+    currentPlanetaryAlignment = getPlanetaryAlignmentState(nowMs);
+    let paEl = document.getElementById('stat-planetary-align');
+    if (paEl && currentPlanetaryAlignment) {
+        let pa = currentPlanetaryAlignment;
+        let symbols = pa.alignment.bodies.map(b => (pa.bodies && pa.bodies[b]?.symbol) || b).join(' ');
+        let paText = `${symbols || '—'} ${pa.level} (${pa.multiplier.toFixed(2)}x)`;
+        let paTitle = (_predDomCache['stat-planetary-align']?.b !== minBucket)
+            ? `Planetary Alignment & Orbital Resonance:\nActive Cluster: ${pa.alignment.bodies.join(', ')}\nTidal Quadrupole Spread: ±${(pa.alignment.spread / 2).toFixed(1)}° (${pa.alignment.spread.toFixed(1)}°)\nResonance Index: ${pa.indexPercent}% (${pa.level})\nCoulomb Trigger Factor: ${pa.multiplier.toFixed(3)}x\n(Click for celestial breakdown)`
+            : undefined;
+        _setPredDom(paEl, 'stat-planetary-align', paText, pa.levelColor, paTitle);
+        if (_predDomCache['stat-planetary-align']) _predDomCache['stat-planetary-align'].b = minBucket;
+    }
+    updateSpaceWeatherModal();
 
     // Update Tectonic Migration Flow in UI
     let tfEl = document.getElementById('stat-tectonic-flow');
@@ -1460,6 +1485,42 @@ async function fetchSchumannData() {
     }
 }
 
+function updateSpaceWeatherModal() {
+    let srModal = document.getElementById('srModal');
+    let isVisible = srModal && srModal.style.display !== 'none';
+
+    let pa = getPlanetaryAlignmentState();
+    let lt = currentLunarTide || getLunarTidalStress();
+    let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0) * (pa ? pa.multiplier : 1.0);
+
+    let elPlLvl = document.getElementById('sr-planet-level');
+    let elPlBodies = document.getElementById('sr-planet-bodies');
+    let elPlSpread = document.getElementById('sr-planet-spread');
+    let elPlIdx = document.getElementById('sr-planet-index');
+    let elPlMult = document.getElementById('sr-planet-mult');
+    let elTotMult = document.getElementById('sr-total-mult');
+    let canvas = document.getElementById('srPlanetCanvas');
+
+    if (pa) {
+        if (elPlLvl) {
+            elPlLvl.textContent = pa.level;
+            elPlLvl.style.color = pa.levelColor;
+        }
+        if (elPlBodies) {
+            let names = pa.alignment.bodies.map(b => `${(pa.bodies && pa.bodies[b]?.symbol) || ''} ${b}`).join(', ') || 'None';
+            elPlBodies.textContent = names;
+        }
+        if (elPlSpread) elPlSpread.textContent = `±${(pa.alignment.spread / 2).toFixed(1)}° (${pa.alignment.spread.toFixed(1)}° total)`;
+        if (elPlIdx) elPlIdx.textContent = `${pa.indexPercent}% (Score ${pa.index.toFixed(2)})`;
+        if (elPlMult) elPlMult.textContent = `${pa.multiplier.toFixed(3)}x`;
+        if (elTotMult) elTotMult.textContent = `${totalMult.toFixed(3)}x (Gaia ${gaiaChargeMultiplier.toFixed(2)}x · Tide ${lt.multiplier.toFixed(2)}x · Planet ${pa.multiplier.toFixed(2)}x)`;
+
+        if (isVisible && canvas && typeof PlanetaryAlignment !== 'undefined' && PlanetaryAlignment.drawWheel) {
+            PlanetaryAlignment.drawWheel(canvas, pa);
+        }
+    }
+}
+
 async function fetchEarthquakes() {
     await fetchSchumannData();
     try {
@@ -1650,7 +1711,8 @@ async function fetchEarthquakes() {
             // Blend: 60% median (stable), 40% EMA (reactive)
             let rawGap = medGap * 0.6 + emaGap * 0.4;
             let lt = getLunarTidalStress();
-            let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0);
+            let pa = getPlanetaryAlignmentState();
+            let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0) * (pa ? pa.multiplier : 1.0);
             let effGap = rawGap / totalMult;
             let last = eqList[0];
             let p50Gap = Math.round(Math.LN2 * effGap);
@@ -2621,12 +2683,44 @@ Interpretation:
 `
 Visualization:
 The animated dashed vectors on the 3D map display the real-time path and direction of stress propagation.`;
+    } else if (calcType === 'planetary-align') {
+        title = "Planetary Alignment & Orbital Resonance";
+        desc = "Planetary orbits exert cyclical gravitational and tidal torques on the Solar System barycenter and the solid Earth. While individual planetary tidal forces on Earth are small compared to the Moon and Sun, multi-planet syzygies and alignments concentrate quadrupole gravitational strain along specific ecliptic axes. In addition, planetary alignments modulate solar activity cycles (Schwabe/barycentric resonance) which feed into Earth's magnetosphere via solar wind and geomagnetic storms (NOAA Kp).";
+
+        let pa = getPlanetaryAlignmentState();
+        let lt = currentLunarTide || getLunarTidalStress();
+        let totalMult = gaiaChargeMultiplier * (lt ? lt.multiplier : 1.0) * (pa ? pa.multiplier : 1.0);
+
+        let bodyListStr = Object.values(pa.bodies || {}).map(b => 
+            `  ${b.symbol} ${b.name.padEnd(8)}: Helio=${b.helioLon.toFixed(1).padStart(5)}° | Geo=${b.geoLon.toFixed(1).padStart(5)}° | Dist=${b.distAU.toFixed(2).padStart(5)} AU | Tidal=${b.tidalRel.toExponential(2)}`
+        ).join('\n');
+
+        let aspectStr = pa.aspects && pa.aspects.length > 0 
+            ? pa.aspects.map(a => `  • ${a.label}`).join('\n')
+            : "  • No major conjunctions (<10°) or oppositions active";
+
+        mathStr = 
+`• Alignment Status: ${pa.level} (${pa.indexPercent}% Resonance Index)
+• Active Quadrupole Cluster: ${pa.alignment.bodies.join(', ')}
+• Alignment Beam Spread: ${pa.alignment.spread.toFixed(1)}° (Center: ${pa.alignment.center.toFixed(1)}°)
+• Coulomb Trigger Factor: ${pa.multiplier.toFixed(3)}x (+${((pa.multiplier - 1.0) * 100).toFixed(1)}% acceleration)
+• Combined Cosmic Multiplier: ${totalMult.toFixed(3)}x (Gaia ${gaiaChargeMultiplier.toFixed(2)}x · Moon ${lt.multiplier.toFixed(2)}x · Planet ${pa.multiplier.toFixed(2)}x)
+
+🪐 Planetary Sky Positions & Distances:
+${bodyListStr}
+
+✨ Celestial Aspects (Conjunctions & Oppositions):
+${aspectStr}
+
+Physical Coupling Theory:
+Tidal forces scale as M/r³. Quadrupole symmetry means that both Conjunction (0°) and Opposition (180°) act along the exact same deformation axis on Earth's lithosphere, modulating Coulomb failure stress along locked tectonic faults.`;
     }
 
     if (statObj && statObj.effGap) {
         let elapsed = statObj.lastEq ? Math.max(0, now - statObj.lastEq.time) : 0;
         let curProb = Math.min(99.9, (1 - Math.exp(-elapsed / statObj.effGap)) * 100);
         let lt = getLunarTidalStress();
+        let pa = getPlanetaryAlignmentState();
         
         let overdueBPTInfo = "";
         if (elapsed > statObj.effGap) {
@@ -2641,7 +2735,7 @@ The animated dashed vectors on the 3D map display the real-time path and directi
         mathStr = 
 `• Dataset: ${statObj.n} events (mainshocks)
 • Base Interval: ${formatDur(statObj.rawGap)} (60% Median + 40% EMA)
-• Gaia Modifier: ${gaiaChargeMultiplier.toFixed(2)}x · Tides: ${lt.multiplier.toFixed(2)}x (Effective: ${formatDur(statObj.effGap)})
+• Cosmic Modifiers: Gaia ${gaiaChargeMultiplier.toFixed(2)}x · Moon ${lt.multiplier.toFixed(2)}x · Planets ${pa.multiplier.toFixed(2)}x (Effective: ${formatDur(statObj.effGap)})
 • Last Quake: ${statObj.lastEq ? formatTime(statObj.lastEq.time) + ' (' + formatDur(elapsed) + ' ago)' : 'N/A'}
 • Expected Mean Time: ${formatTime(statObj.nextTime)}
 
@@ -2649,7 +2743,7 @@ Poisson Arrival Windows:
 • 50% Confidence (P50): ~${formatDur(statObj.p50Gap)} (${formatTime(statObj.p50Time)})
 • 90% Confidence (P90): ~${formatDur(statObj.p90Gap)} (${formatTime(statObj.p90Time)})
 • Current Probability: ${curProb.toFixed(1)}%${overdueBPTInfo}`;
-    } else if (calcType !== 'b-value' && calcType !== 'lunar-tide' && calcType !== 'tectonic-flow') {
+    } else if (calcType !== 'b-value' && calcType !== 'lunar-tide' && calcType !== 'tectonic-flow' && calcType !== 'planetary-align') {
         mathStr = "Calculation in progress or insufficient data available.";
     }
     
