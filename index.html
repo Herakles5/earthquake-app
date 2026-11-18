@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Earthquake Map</title>
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=20261118b">
+    <link rel="stylesheet" href="style.css?v=20261118c">
     <meta name="theme-color" content="#1a1a24">
     <!-- PWA settings for iOS -->
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -239,22 +239,22 @@
                         <h2 style="color: #ff00ff; margin: 0; font-size: 17px; text-shadow: 0 0 10px #ff00ff;">Space Weather &amp; Planetary Resonance</h2>
                     </div>
                     <div style="display: flex; align-items: center; gap: 10px;">
-                        <span class="sr-drag-hint">✛ Verschieben</span>
-                        <button id="srModalCloseBtn" class="sr-modal-close" onclick="document.getElementById('srModal').style.display='none'" title="Schließen">×</button>
+                        <span class="sr-drag-hint">✛ Drag to move</span>
+                        <button id="srModalCloseBtn" class="sr-modal-close" onclick="document.getElementById('srModal').style.display='none'" title="Close">×</button>
                     </div>
                 </div>
 
                 <p style="font-size: 13px; line-height: 1.5; margin-bottom: 12px; color: #ccc;">
-                    Dieses System berechnet den <strong>Gaia Charge Multiplier</strong> durch synchrone Überwachung geomagnetischer Störungen (Kp-Index via NOAA) und planetarer Resonanzen. Elektromagnetische und gravitative Spannungsspitzen beschleunigen tektonische Entladungs-Rhythmen.
+                    This system calculates the <strong>Gaia Charge Multiplier</strong> by continuously monitoring geomagnetic disturbances (Kp-Index via NOAA Space Weather) and planetary orbital resonances. High electromagnetic and gravitational tension accelerates tectonic discharge rhythms.
                 </p>
 
                 <div style="background: rgba(255, 0, 255, 0.1); padding: 12px 14px; border-radius: 8px; margin-bottom: 12px; border: 1px solid rgba(255, 0, 255, 0.25);">
-                    <h3 style="margin: 0 0 8px 0; color: #ff88ff; font-size: 14px;">Geomagnetischer Live-Status (NOAA)</h3>
+                    <h3 style="margin: 0 0 8px 0; color: #ff88ff; font-size: 14px;">Geomagnetic Live Status (NOAA)</h3>
                     <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px;">
-                        <span>Geomagnetischer Kp-Index (Live 3h NOAA):</span> <strong id="sr-kp-val" style="color: #ff00ff;">Loading...</strong>
+                        <span>Geomagnetic Kp-Index (Live 3h NOAA):</span> <strong id="sr-kp-val" style="color: #ff00ff;">Loading...</strong>
                     </div>
                     <div style="display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 13px;">
-                        <span>24h Peak Kp-Index (Residual-Ladung):</span> <strong id="sr-kp-peak24h" style="color: #ff88ff;">Loading...</strong>
+                        <span>24h Peak Kp-Index (Residual Charge):</span> <strong id="sr-kp-peak24h" style="color: #ff88ff;">Loading...</strong>
                     </div>
                     <div style="display: flex; justify-content: space-between; font-size: 13px;">
                         <span>Gaia Charge Multiplier (0.98×–1.10×):</span> <strong id="sr-mult-val" style="color: #00ffcc;">1.00x</strong>
@@ -263,7 +263,7 @@
 
                 <div style="background: rgba(255, 220, 50, 0.08); border: 1px solid rgba(255, 220, 50, 0.3); padding: 14px; border-radius: 8px; margin-bottom: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <h3 style="margin: 0; color: #ffe066; font-size: 14.5px;">🪐 Planeten-Konstellation &amp; Solare Resonanz</h3>
+                        <h3 style="margin: 0; color: #ffe066; font-size: 14.5px;">🪐 Planetary Alignment &amp; Solar System Resonance</h3>
                         <span id="sr-planet-level" style="font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 4px; background: rgba(255,220,100,0.2); color: #ffe066;">...</span>
                     </div>
 
@@ -271,46 +271,46 @@
                         <canvas id="srPlanetCanvas" width="170" height="170"></canvas>
                         <div style="flex: 1; min-width: 210px; font-size: 12px; line-height: 1.55;">
                             <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                                <span style="color: #ccc;">Ausgerichtete Körper:</span> <strong id="sr-planet-bodies" style="color: #fff;">...</strong>
+                                <span style="color: #ccc;">Aligned Bodies:</span> <strong id="sr-planet-bodies" style="color: #fff;">...</strong>
                             </div>
                             <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                                <span style="color: #ccc;">Gezeiten-Quadrupol-Streuung:</span> <strong id="sr-planet-spread" style="color: #88ffcc;">...</strong>
+                                <span style="color: #ccc;">Tidal Quadrupole Spread:</span> <strong id="sr-planet-spread" style="color: #88ffcc;">...</strong>
                             </div>
                             <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                                <span style="color: #ccc;">Resonanz-Index:</span> <strong id="sr-planet-index" style="color: #ffe066;">...</strong>
+                                <span style="color: #ccc;">Resonance Index:</span> <strong id="sr-planet-index" style="color: #ffe066;">...</strong>
                             </div>
                             <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
                                 <span style="color: #ccc;">Planetary Trigger Factor:</span> <strong id="sr-planet-mult" style="color: #00ffcc;">1.00x</strong>
                             </div>
                             <div style="display: flex; justify-content: space-between; margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.15);">
-                                <span style="color: #ff88ff; font-weight: bold;">Kombinierter Kosmischer Multiplier:</span> <strong id="sr-total-mult" style="color: #ff33ff; font-size: 13px;">1.00x</strong>
+                                <span style="color: #ff88ff; font-weight: bold;">Combined Cosmic Multiplier:</span> <strong id="sr-total-mult" style="color: #ff33ff; font-size: 13px;">1.00x</strong>
                             </div>
                         </div>
                     </div>
 
                     <button type="button" class="planet-info-toggle-btn" onclick="let b=document.getElementById('sr-planet-info-box'); b.classList.toggle('hidden'); this.querySelector('.toggle-arrow').textContent=b.classList.contains('hidden')?'▼':'▲';">
-                        <span>ℹ️ Wie beeinflussen Planeten Erdbeben? (Erklärung anzeigen)</span>
+                        <span>ℹ️ How do planetary alignments affect earthquakes? (Show explanation)</span>
                         <span class="toggle-arrow">▼</span>
                     </button>
                     <div id="sr-planet-info-box" class="planet-info-box hidden">
-                        <div style="margin-bottom: 8px;"><strong style="color: #ffe066;">1. Gravitative Quadrupol-Gezeiten ($M/r^3$):</strong><br>
-                        Planeten erzeugen auf der Erde eine ellipsoidale Deformationsspannung. Durch die physikalische Quadrupol-Symmetrie wirken <strong>Konjunktionen ($0^\circ$) und Oppositionen ($180^\circ$)</strong> entlang derselben Deformationsachse. Stehen mehrere Körper in einer Fluchtlinie, konzentriert sich die Dehnungskraft auf die Erdkruste.</div>
+                        <div style="margin-bottom: 8px;"><strong style="color: #ffe066;">1. Gravitational Quadrupole Tides (M/r³):</strong><br>
+                        Planetary bodies exert subtle ellipsoidal tidal deformation on Earth's lithosphere. Due to quadrupole symmetry, <strong>Conjunction (0°) and Opposition (180°)</strong> act along the exact same tectonic deformation axis. When 3 or more celestial bodies align, their tidal vectors constructively combine along that fault line.</div>
                         
                         <div style="margin-bottom: 8px;"><strong style="color: #ffe066;">2. Coulomb Stress Triggering (Tidal Clock Advance):</strong><br>
-                        Tektonische Verwerfungen vor einem Starkbeben befinden sich oft im überkritischen Spannungszustand (*Self-Organized Criticality*). Schon minimale periodische Belastungsänderungen im Pascal- bis Kilopascal-Bereich können den entscheidenden Impuls geben, um die Verhakung vorzeitig brechen zu lassen.</div>
+                        Fault zones preceding major earthquakes exist in a state of Self-Organized Criticality (locked asperities). Minute cyclic stress modulations in the Pascal to Kilopascal range provide the threshold trigger needed to prematurely overcome static friction.</div>
                         
-                        <div><strong style="color: #ffe066;">3. Solare Baryzentrum-Resonanz &amp; Kp-Kopplung:</strong><br>
-                        Schwere Planeten (Jupiter, Saturn, Venus, Erde) verlagern das gemeinsame Massenzentrum (Baryzentrum) des Sonnensystems aus der Sonnenmitte heraus. Dies moduliert die solare Aktivität und den Sonnenwind, was über geomagnetische Induktion (NOAA Kp-Index / Schumann-Resonanz) und magnetotellurische Ströme direkt auf die Erdkruste rückwirkt.</div>
+                        <div><strong style="color: #ffe066;">3. Solar Barycentric Resonance &amp; Kp Coupling:</strong><br>
+                        Massive gas giants (Jupiter, Saturn) periodically shift the Solar System barycenter outside the physical body of the Sun. This gravitational torque modulates solar dynamo cycles and solar wind streams, which directly couple into Earth's magnetosphere, Schumann cavity, and telluric crustal currents (NOAA Kp-Index).</div>
                     </div>
                 </div>
 
                 <p style="font-size: 11.5px; color: #888; font-style: italic; margin-bottom: 12px;">
-                    Der kombinierte kosmische Multiplikator beschleunigt dynamisch die statistischen Poisson-Wahrscheinlichkeiten der Gaia-Rhythmusmatrix. Hohe energetische und gravitative Spannungen drängen auf eine raschere tektonische Entladung.
+                    The combined cosmic multiplier dynamically modulates the statistical Poisson arrival probabilities in the Gaia Rhythm Matrix. Heightened energetic and gravitational tension drives earlier tectonic stress release.
                 </p>
 
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 10px;">
-                    <span style="font-size: 11px; color: #777;">Tipp: Dieses Fenster kann an der oberen Leiste verschoben werden.</span>
-                    <button onclick="document.getElementById('srModal').style.display='none'" style="background: rgba(255,0,255,0.2); border: 1px solid #ff00ff; color: #ff00ff; padding: 7px 18px; border-radius: 4px; cursor: pointer; text-transform: uppercase; font-weight: bold; font-size: 12px;">Schließen</button>
+                    <span style="font-size: 11px; color: #777;">Tip: You can drag this window by its top header bar.</span>
+                    <button onclick="document.getElementById('srModal').style.display='none'" style="background: rgba(255,0,255,0.2); border: 1px solid #ff00ff; color: #ff00ff; padding: 7px 18px; border-radius: 4px; cursor: pointer; text-transform: uppercase; font-weight: bold; font-size: 12px;">Close</button>
                 </div>
             </div>
         </div>
@@ -500,8 +500,8 @@
     <script src="coastlines.js?v=20261113"></script>
     <script src="plates.js?v=20261113"></script>
     <script src="tectonic_model.js?v=20261113"></script>
-    <script src="planetary_alignment.js?v=20261118b"></script>
-    <script src="app.js?v=20261118b"></script>
+    <script src="planetary_alignment.js?v=20261118c"></script>
+    <script src="app.js?v=20261118c"></script>
     <script>
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.register('sw.js').then(reg => {
