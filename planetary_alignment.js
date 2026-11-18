@@ -272,8 +272,8 @@
         // High-DPI handling
         const dpr = window.devicePixelRatio || 1;
         const rect = canvas.getBoundingClientRect();
-        const displayW = rect.width || canvas.width || 300;
-        const displayH = rect.height || canvas.height || 300;
+        const displayW = (rect.width > 20 && rect.width < 600) ? rect.width : (canvas.clientWidth || 170);
+        const displayH = (rect.height > 20 && rect.height < 600) ? rect.height : (canvas.clientHeight || 170);
 
         if (canvas.width !== Math.round(displayW * dpr) || canvas.height !== Math.round(displayH * dpr)) {
             canvas.width = Math.round(displayW * dpr);

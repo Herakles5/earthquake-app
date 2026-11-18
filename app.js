@@ -1516,7 +1516,9 @@ function updateSpaceWeatherModal() {
         if (elTotMult) elTotMult.textContent = `${totalMult.toFixed(3)}x (Gaia ${gaiaChargeMultiplier.toFixed(2)}x · Tide ${lt.multiplier.toFixed(2)}x · Planet ${pa.multiplier.toFixed(2)}x)`;
 
         if (isVisible && canvas && typeof PlanetaryAlignment !== 'undefined' && PlanetaryAlignment.drawWheel) {
-            PlanetaryAlignment.drawWheel(canvas, pa);
+            requestAnimationFrame(() => {
+                PlanetaryAlignment.drawWheel(canvas, pa);
+            });
         }
     }
 }
@@ -4449,6 +4451,83 @@ document.querySelectorAll('.eq-popup').forEach(popup => {
     }, {passive: true});
     window.addEventListener('touchend', stopDrag);
 });
+
+// Draggable Space Weather & Planetary Modal
+const srModal = document.getElementById('srModal');
+const srModalDialog = document.getElementById('srModalDialog');
+const srModalHeader = document.getElementById('srModalHeader');
+
+if (srModal && srModalDialog && srModalHeader) {
+    let isSrDragging = false, startSrX = 0, startSrY = 0, initSrLeft = 0, initSrTop = 0;
+
+    const startSrDrag = (clientX, clientY) => {
+        isSrDragging = true;
+        srModalHeader.style.cursor = 'grabbing';
+        startSrX = clientX;
+        startSrY = clientY;
+
+        const rect = srModalDialog.getBoundingClientRect();
+        initSrLeft = rect.left;
+        initSrTop = rect.top;
+
+        srModalDialog.style.position = 'fixed';
+        srModalDialog.style.left = initSrLeft + 'px';
+        srModalDialog.style.top = initSrTop + 'px';
+        srModalDialog.style.margin = '0';
+        srModalDialog.style.transform = 'none';
+
+        srModal.style.alignItems = 'flex-start';
+        srModal.style.justifyContent = 'flex-start';
+    };
+
+    const onSrDrag = (clientX, clientY) => {
+        if (!isSrDragging) return;
+        const dx = clientX - startSrX;
+        const dy = clientY - startSrY;
+        const dw = srModalDialog.offsetWidth;
+        const dh = srModalDialog.offsetHeight;
+
+        let newLeft = Math.max(8, Math.min(window.innerWidth - dw - 8, initSrLeft + dx));
+        let newTop = Math.max(8, Math.min(window.innerHeight - dh - 8, initSrTop + dy));
+
+        srModalDialog.style.left = newLeft + 'px';
+        srModalDialog.style.top = newTop + 'px';
+    };
+
+    const stopSrDrag = () => {
+        if (!isSrDragging) return;
+        isSrDragging = false;
+        srModalHeader.style.cursor = 'grab';
+    };
+
+    srModalHeader.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button')) return;
+        e.preventDefault();
+        startSrDrag(e.clientX, e.clientY);
+    });
+    window.addEventListener('mousemove', (e) => onSrDrag(e.clientX, e.clientY));
+    window.addEventListener('mouseup', stopSrDrag);
+
+    srModalHeader.addEventListener('touchstart', (e) => {
+        if (e.target.closest('button')) return;
+        if (e.touches.length === 1) {
+            startSrDrag(e.touches[0].clientX, e.touches[0].clientY);
+        }
+    }, { passive: true });
+    window.addEventListener('touchmove', (e) => {
+        if (isSrDragging && e.touches.length === 1) {
+            onSrDrag(e.touches[0].clientX, e.touches[0].clientY);
+        }
+    }, { passive: true });
+    window.addEventListener('touchend', stopSrDrag);
+
+    // Close on backdrop click outside dialog
+    srModal.addEventListener('click', (e) => {
+        if (e.target === srModal) {
+            srModal.style.display = 'none';
+        }
+    });
+}
 
 // ========== Search & Filter Panel Logic ==========
 const searchToggleBtn = document.getElementById('btn-search-toggle');
