@@ -20,8 +20,6 @@ EMSC (European-Mediterranean Seismological Centre)
 GEOFON (Deutsches GeoForschungsZentrum GFZ in Potsdam) 
 Nationale Netzwerke (GeoNet, JMA) 
 and only from +3 magnitude***
-
-<img width="1920" height="1080" alt="Screenshot_2026-11-21_19-34-52" src="https://github.com/user-attachments/assets/5680ef4f-2170-4c4b-99e4-c9fe66c029c2" />
 <img width="1920" height="1080" alt="Screenshot_2026-11-23_13-03-28" src="https://github.com/user-attachments/assets/f21047f7-f9a8-4024-b736-469f79af9056" />
 <img width="1920" height="1080" alt="Screenshot_2026-11-23_13-03-34" src="https://github.com/user-attachments/assets/a8d19ddf-5d97-49c6-90c6-a508fe9cb155" />
 
